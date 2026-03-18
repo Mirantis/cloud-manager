@@ -895,6 +895,57 @@ func (h *Handler) InvalidateS3BucketsCache(c *gin.Context) {
 }
 
 // ============================================================================
+// ROUTE53 DOMAIN HANDLERS
+// ============================================================================
+
+func (h *Handler) ListRoute53Domains(c *gin.Context) {
+	domains, err := h.awsService.ListRoute53Domains()
+	if err != nil {
+		fmt.Printf("[ERROR] ListRoute53Domains failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   err.Error(),
+			"details": "Failed to list Route53 domains. Check AWS credentials and permissions.",
+		})
+		return
+	}
+	c.JSON(http.StatusOK, domains)
+}
+
+func (h *Handler) InvalidateRoute53DomainsCache(c *gin.Context) {
+	h.awsService.InvalidateRoute53DomainsCache()
+	c.JSON(http.StatusOK, gin.H{"message": "Route53 domains cache invalidated successfully"})
+}
+
+func (h *Handler) ListRoute53Records(c *gin.Context) {
+	accountID := c.Param("accountId")
+	hostedZoneID := c.Param("hostedZoneId")
+
+	if accountID == "" || hostedZoneID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Account ID and hosted zone ID are required",
+		})
+		return
+	}
+
+	records, err := h.awsService.ListRoute53Records(accountID, hostedZoneID)
+	if err != nil {
+		fmt.Printf("[ERROR] ListRoute53Records failed for zone %s in account %s: %v\n", hostedZoneID, accountID, err)
+
+		statusCode := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "cannot access account") {
+			statusCode = http.StatusForbidden
+		}
+
+		c.JSON(statusCode, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, records)
+}
+
+// ============================================================================
 // IAM ROLE HANDLERS
 // ============================================================================
 

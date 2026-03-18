@@ -185,6 +185,13 @@ Resources:
               - 's3:PutBucketTagging'
               - 's3:PutBucketPublicAccessBlock'
             Resource: 'arn:aws:s3:::*'
+          - Sid: 'AllowRoute53DomainListing'
+            Effect: Allow
+            Action:
+              - 'route53:ListHostedZones'
+              - 'route53:GetHostedZone'
+              - 'route53:ListResourceRecordSets'
+            Resource: '*'
           - Sid: 'AllowSSOIdentityCenterManagement'
             Effect: Allow
             Action:

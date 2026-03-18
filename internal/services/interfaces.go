@@ -67,6 +67,10 @@ type AWSServiceInterface interface {
 	ListNATGatewaysByAccount(accountID string) ([]models.NATGateway, error)
 	DeleteNATGateway(accountID, region, natGatewayID string) error
 	InvalidateNATGatewaysCache()
+	// Route53 domain management
+	ListRoute53Domains() ([]models.Route53Domain, error)
+	ListRoute53Records(accountID, hostedZoneID string) ([]models.Route53Record, error)
+	InvalidateRoute53DomainsCache()
 	// Cache management methods
 	ClearCache()
 	InvalidateAccountCache(accountID string)

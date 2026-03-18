@@ -1,4 +1,4 @@
-.PHONY: build build-frontend build-backend build-cli dev dev-stop dev-logs dev-cli dev-frontend dev-backend test fmt lint install check install-linter tidy deps preview clean-build ci pre-commit build-prod build-release release help deploy-user remove-user create-role remove-role deploy-stackset update-stackset status-stackset remove-stackset delete-stackset cli-status check-aws-config unset-variables unset-variables-exec deploy validate-prod-env docker-build docker-build-ghcr docker-build-multiarch docker-build-multiarch-push docker-push-ghcr lint-docker docker-run
+.PHONY: build build-frontend build-backend build-cli dev dev-stop dev-logs dev-compose dev-compose-stop dev-cli dev-frontend dev-backend test fmt lint install check install-linter tidy deps preview clean-build ci pre-commit build-prod build-release release help deploy-user remove-user create-role remove-role deploy-stackset update-stackset status-stackset remove-stackset delete-stackset cli-status check-aws-config unset-variables unset-variables-exec deploy validate-prod-env docker-build docker-build-ghcr docker-build-multiarch docker-build-multiarch-push docker-push-ghcr lint-docker docker-run
 
 
 # Default target
@@ -18,6 +18,8 @@ help:
 	@echo "  dev              - Build and deploy to local k8s with .env.prod"
 	@echo "  dev-stop         - Stop and remove local k8s deployment"
 	@echo "  dev-logs         - Show logs from local k8s deployment"
+	@echo "  dev-compose      - Run locally with podman compose"
+	@echo "  dev-compose-stop - Stop podman compose"
 	@echo "  dev-cli          - Run CLI in development mode"
 	@echo "  dev-frontend     - Run frontend development server"
 	@echo "  dev-backend      - Run backend in development mode"
@@ -144,7 +146,7 @@ build-release:
 # ============================================================================
 
 # Development mode - builds and deploys to local k8s cluster with .env.prod env vars
-# For Docker Desktop, minikube (with eval $(minikube docker-env)), or kind (with kind load)
+# For Podman, minikube (with eval $(minikube podman-env)), or kind (with kind load)
 dev:
 	@echo "🚀 Starting development environment in Kubernetes..."
 	@echo "🧹 Unsetting AWS environment variables..."
@@ -154,16 +156,15 @@ dev:
 	fi
 	@echo "📦 Building frontend..."
 	@cd frontend && npm run build
-	@echo "🐳 Building Docker image locally (no cache)..."
+	@echo "📦 Building Podman image locally (no cache)..."
 	@(unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_PROFILE AWS_DEFAULT_REGION AWS_SSO_REGION; \
-	DOCKER_BUILDKIT=1 docker build \
+	podman build \
 		--no-cache \
-		--build-arg BUILDKIT_INLINE_CACHE=1 \
 		--network=host \
 		-t cloud-manager:dev .) || \
-		(echo "❌ Docker build failed. Trying without network isolation..." && \
+		(echo "❌ Podman build failed. Trying without network isolation..." && \
 		 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_PROFILE AWS_DEFAULT_REGION AWS_SSO_REGION && \
-		 docker build --no-cache --network=host -t cloud-manager:dev .)
+		 podman build --no-cache --network=host -t cloud-manager:dev .)
 	@echo "☸️  Deploying to Kubernetes cluster..."
 	@kubectl apply -f k8s/namespace.yaml
 	@echo "🔐 Generating admin password..."
@@ -205,6 +206,20 @@ dev:
 	kubectl port-forward -n cloud-manager svc/cloud-manager 8080:8080 & \
 	sleep 2 && kubectl logs -f -n cloud-manager -l app.kubernetes.io/name=cloud-manager & \
 	wait
+
+# Run locally with podman compose (uses .env.prod)
+dev-compose:
+	@if [ ! -f .env.prod ]; then \
+		echo "❌ Error: .env.prod file not found. Create it with your environment variables."; \
+		exit 1; \
+	fi
+	@echo "📦 Starting with podman compose..."
+	podman compose up --build
+
+# Stop podman compose
+dev-compose-stop:
+	@echo "🛑 Stopping podman compose..."
+	podman compose down
 
 # Stop local k8s development deployment
 dev-stop:

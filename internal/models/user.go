@@ -271,3 +271,22 @@ type NATGateway struct {
 	CreateTime       *time.Time `json:"create_time,omitempty"`
 	Tags             []Tag      `json:"tags,omitempty"`
 }
+
+// Route53Domain represents an AWS Route53 hosted zone
+type Route53Domain struct {
+	HostedZoneID   string `json:"hosted_zone_id"`
+	Name           string `json:"name"`
+	RecordSetCount int64  `json:"record_set_count"`
+	IsPrivate      bool   `json:"is_private"`
+	Comment        string `json:"comment,omitempty"`
+	AccountID      string `json:"account_id"`
+	AccountName    string `json:"account_name"`
+}
+
+// Route53Record represents a DNS record in a Route53 hosted zone
+type Route53Record struct {
+	Name   string   `json:"name"`
+	Type   string   `json:"type"`
+	TTL    int64    `json:"ttl"`
+	Values []string `json:"values"`
+}

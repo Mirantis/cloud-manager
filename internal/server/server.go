@@ -219,6 +219,10 @@ func (s *Server) SetupRoutes() *gin.Engine {
 		apiProtected.GET("/accounts/:accountId/nat-gateways", s.handler.ListNATGatewaysByAccount)
 		apiProtected.DELETE("/accounts/:accountId/regions/:region/nat-gateways/:natGatewayId", s.handler.DeleteNATGateway)
 
+		// Route53 domain routes
+		apiProtected.GET("/route53-domains", s.handler.ListRoute53Domains)
+		apiProtected.GET("/accounts/:accountId/route53-domains/:hostedZoneId/records", s.handler.ListRoute53Records)
+
 		// Azure routes (combine Azure AD and Azure RM routes in a single /azure group)
 		if s.azureHandler != nil || s.azureRMHandler != nil {
 			azure := apiProtected.Group("/azure")
@@ -377,6 +381,7 @@ func (s *Server) SetupRoutes() *gin.Engine {
 		apiProtected.POST("/cache/accounts/:accountId/load-balancers/invalidate", s.handler.InvalidateLoadBalancersCache)
 		apiProtected.POST("/cache/vpcs/invalidate", s.handler.InvalidateVPCsCache)
 		apiProtected.POST("/cache/nat-gateways/invalidate", s.handler.InvalidateNATGatewaysCache)
+		apiProtected.POST("/cache/route53-domains/invalidate", s.handler.InvalidateRoute53DomainsCache)
 	}
 
 	// Serve frontend

@@ -1,0 +1,10 @@
+services:
+  cloud-manager:
+    build: .
+    image: cloud-manager:dev
+    container_name: cloud-manager
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.prod
+    restart: unless-stopped
