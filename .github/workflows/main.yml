@@ -48,6 +48,8 @@ jobs:
         with:
           version: latest
           args: --timeout=5m
+        env:
+          CGO_ENABLED: "1"
 
       - name: Run tests with coverage
         run: make test-coverage
