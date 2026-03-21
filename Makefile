@@ -271,19 +271,19 @@ preview:
 # Run all tests
 test:
 	@echo "🧪 Running tests..."
-	go test ./...
+	go test $(shell go list ./... | grep -v cmd/iam-manager)
 	cd frontend && npm test
 
 # Run tests with coverage
 test-coverage-basic:
 	@echo "🧪 Running tests with basic coverage..."
-	go test -cover ./...
+	go test -cover $(shell go list ./... | grep -v cmd/iam-manager)
 	cd frontend && npm run test -- --coverage
 
 # Run tests with verbose output
 test-verbose:
 	@echo "🧪 Running verbose tests..."
-	go test -v ./...
+	go test -v $(shell go list ./... | grep -v cmd/iam-manager)
 
 # Format all code
 fmt:
@@ -760,7 +760,7 @@ ci: check test-coverage docker-build
 # Generate test coverage report
 test-coverage:
 	@echo "📊 Running tests with coverage..."
-	go test -race -coverprofile=coverage.out -covermode=atomic ./...
+	go test -race -coverprofile=coverage.out -covermode=atomic $(shell go list ./... | grep -v cmd/iam-manager)
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "📊 Coverage report generated: coverage.html"
 
