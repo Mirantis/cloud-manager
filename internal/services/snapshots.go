@@ -312,7 +312,7 @@ func (s *AWSService) DeleteOldSnapshots(accountID string, olderThanMonths int) (
 		for _, e := range errors {
 			errMsg += "; " + e.Error()
 		}
-		return deletedSnapshots, fmt.Errorf(errMsg)
+		return deletedSnapshots, fmt.Errorf("%s", errMsg)
 	}
 
 	return deletedSnapshots, nil
