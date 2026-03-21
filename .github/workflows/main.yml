@@ -27,7 +27,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
 
       - name: Set up Node.js
@@ -198,7 +198,7 @@ jobs:
         if: matrix.language == 'go'
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
 
       - name: Set up Node.js
@@ -239,7 +239,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
 
       - name: Set up Node.js
@@ -255,7 +255,7 @@ jobs:
       - name: Run govulncheck (Go vulnerability database)
         uses: golang/govulncheck-action@v1
         with:
-          go-version-input: '1.24'
+          go-version-input: '1.25'
           go-package: ./...
 
       - name: Run npm audit (frontend dependency CVEs)
