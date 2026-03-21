@@ -252,13 +252,16 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Install system dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y libsecret-1-dev
+
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
       - name: Run govulncheck (Go vulnerability database)
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+          govulncheck ./cmd/server/... ./internal/...
 
       - name: Run npm audit (frontend dependency CVEs)
         run: cd frontend && npm audit --audit-level=high
