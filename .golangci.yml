@@ -5,7 +5,7 @@ run:
   modules-download-mode: readonly
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - bodyclose
     - dogsled
@@ -47,21 +47,17 @@ linters:
       locale: US
     lll:
       line-length: 120
-    goimports:
-      local-prefixes: github.com/rusik69/aws-iam-manager
     gocritic:
       enabled-tags:
         - diagnostic
         - performance
         - style
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - mnd
-        - goconst
-    - path: cmd/
-      linters:
-        - mnd
-  exclude-use-default: false
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - mnd
+          - goconst
+      - path: cmd/
+        linters:
+          - mnd
