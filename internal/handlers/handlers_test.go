@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rusik69/aws-iam-manager/internal/config"
 	"github.com/rusik69/aws-iam-manager/internal/models"
 
 	"github.com/gin-gonic/gin"
@@ -296,7 +297,7 @@ func setupRouter() *gin.Engine {
 	r := gin.New()
 
 	mockService := &MockAWSService{}
-	handler := NewHandler(mockService)
+	handler := NewHandler(mockService, config.Config{})
 
 	api := r.Group("/api")
 	{
@@ -575,3 +576,71 @@ func TestDeleteSecurityGroup(t *testing.T) {
 		})
 	}
 }
+
+// Stub implementations to satisfy AWSServiceInterface
+
+func (m *MockAWSService) ListAllUsers() ([]models.UserWithAccount, error) { return nil, nil }
+func (m *MockAWSService) DeleteInactiveUsers(accountID string) ([]string, []string, error) {
+	return nil, nil, nil
+}
+func (m *MockAWSService) ListSnapshots() ([]models.Snapshot, error) { return nil, nil }
+func (m *MockAWSService) ListSnapshotsByAccount(accountID string) ([]models.Snapshot, error) {
+	return nil, nil
+}
+func (m *MockAWSService) DeleteSnapshot(accountID, region, snapshotID string) error { return nil }
+func (m *MockAWSService) DeleteOldSnapshots(accountID string, olderThanMonths int) ([]string, error) {
+	return nil, nil
+}
+func (m *MockAWSService) ListEC2Instances() ([]models.EC2Instance, error)            { return nil, nil }
+func (m *MockAWSService) StopEC2Instance(accountID, region, instanceID string) error { return nil }
+func (m *MockAWSService) TerminateEC2Instance(accountID, region, instanceID string) error {
+	return nil
+}
+func (m *MockAWSService) InvalidateEC2InstancesCache()                {}
+func (m *MockAWSService) ListEBSVolumes() ([]models.EBSVolume, error) { return nil, nil }
+func (m *MockAWSService) ListEBSVolumesByAccount(accountID string) ([]models.EBSVolume, error) {
+	return nil, nil
+}
+func (m *MockAWSService) DetachEBSVolume(accountID, region, volumeID string) error { return nil }
+func (m *MockAWSService) DeleteEBSVolume(accountID, region, volumeID string) error { return nil }
+func (m *MockAWSService) InvalidateEBSVolumesCache()                               {}
+func (m *MockAWSService) ListS3Buckets() ([]models.S3Bucket, error)                { return nil, nil }
+func (m *MockAWSService) ListS3BucketsByAccount(accountID string) ([]models.S3Bucket, error) {
+	return nil, nil
+}
+func (m *MockAWSService) DeleteS3Bucket(accountID, region, bucketName string) error { return nil }
+func (m *MockAWSService) InvalidateS3BucketsCache()                                 {}
+func (m *MockAWSService) ListRoles(accountID string) ([]models.IAMRole, error)      { return nil, nil }
+func (m *MockAWSService) ListAllRoles() ([]models.RoleWithAccount, error)           { return nil, nil }
+func (m *MockAWSService) GetRole(accountID, roleName string) (*models.IAMRole, error) {
+	return nil, nil
+}
+func (m *MockAWSService) DeleteRole(accountID, roleName string) error          { return nil }
+func (m *MockAWSService) InvalidateRolesCache()                                {}
+func (m *MockAWSService) InvalidateAccountRolesCache(accountID string)         {}
+func (m *MockAWSService) ListAllLoadBalancers() ([]models.LoadBalancer, error) { return nil, nil }
+func (m *MockAWSService) ListLoadBalancersByAccount(accountID string) ([]models.LoadBalancer, error) {
+	return nil, nil
+}
+func (m *MockAWSService) DeleteLoadBalancer(accountID, region, loadBalancerArnOrName, lbType string) error {
+	return nil
+}
+func (m *MockAWSService) InvalidateLoadBalancersCache(accountID string) {}
+func (m *MockAWSService) InvalidateAllLoadBalancersCache()              {}
+func (m *MockAWSService) ListVPCs() ([]models.VPC, error)               { return nil, nil }
+func (m *MockAWSService) ListVPCsByAccount(accountID string) ([]models.VPC, error) {
+	return nil, nil
+}
+func (m *MockAWSService) DeleteVPC(accountID, region, vpcID string) error { return nil }
+func (m *MockAWSService) InvalidateVPCsCache()                            {}
+func (m *MockAWSService) ListNATGateways() ([]models.NATGateway, error)   { return nil, nil }
+func (m *MockAWSService) ListNATGatewaysByAccount(accountID string) ([]models.NATGateway, error) {
+	return nil, nil
+}
+func (m *MockAWSService) DeleteNATGateway(accountID, region, natGatewayID string) error { return nil }
+func (m *MockAWSService) InvalidateNATGatewaysCache()                                   {}
+func (m *MockAWSService) ListRoute53Domains() ([]models.Route53Domain, error)           { return nil, nil }
+func (m *MockAWSService) ListRoute53Records(accountID, hostedZoneID string) ([]models.Route53Record, error) {
+	return nil, nil
+}
+func (m *MockAWSService) InvalidateRoute53DomainsCache() {}
