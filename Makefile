@@ -1,5 +1,19 @@
-.PHONY: build build-frontend build-backend build-cli dev dev-stop dev-logs dev-compose dev-compose-stop dev-cli dev-frontend dev-backend test fmt lint install check install-linter tidy deps preview clean-build ci pre-commit build-prod build-release release help deploy-user remove-user create-role remove-role deploy-stackset update-stackset status-stackset remove-stackset delete-stackset cli-status check-aws-config unset-variables unset-variables-exec deploy validate-prod-env docker-build docker-build-ghcr docker-build-multiarch docker-build-multiarch-push docker-push-ghcr lint-docker docker-run
+.PHONY: build build-frontend build-backend build-cli dev dev-stop dev-logs dev-compose dev-compose-stop dev-cli dev-frontend dev-backend test fmt lint install check install-linter tidy deps preview clean-build ci pre-commit build-prod build-release release help deploy-user remove-user create-role remove-role deploy-stackset update-stackset status-stackset remove-stackset delete-stackset cli-status check-aws-config unset-variables unset-variables-exec deploy install-k0s k0s-deploy install-ingress-nginx validate-prod-env podman-build podman-build-ghcr podman-build-multiarch podman-build-multiarch-push podman-push-ghcr lint-containerfile podman-run debug-probe-cloudmanager
 
+# Remote kubectl for `make deploy` (non-interactive SSH often lacks /usr/local/bin and /snap/bin)
+KUBECTL ?= kubectl
+# Bundled cert-manager release URL (CRDs + controller); used when cluster lacks cert-manager
+CERT_MANAGER_VERSION ?= v1.14.5
+CERT_MANAGER_INSTALL_URL ?= https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
+
+# ingress-nginx bare-metal (NodePort). Override tag to pin a release.
+INGRESS_NGINX_TAG ?= v1.11.2
+INGRESS_BAREMETAL_URL = https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-$(INGRESS_NGINX_TAG)/deploy/static/provider/baremetal/deploy.yaml
+# Set INGRESS_HOSTNETWORK=1 so the controller binds :80/:443 on the node (typical single-node k0s + public DNS to that IP).
+INGRESS_HOSTNETWORK ?= 0
+
+# Default image for Kubernetes / GHCR (override for forks, e.g. GHCR_IMAGE=ghcr.io/yourorg/cloud-manager:latest)
+GHCR_IMAGE ?= ghcr.io/mirantis/cloud-manager:latest
 
 # Default target
 help:
@@ -10,7 +24,7 @@ help:
 	@echo "  build-backend    - Build Go backend server"
 	@echo "  build-cli        - Build Go CLI application"
 	@echo "  build-go         - Build both backend and CLI"
-	@echo "  build            - Build everything (Docker)"
+	@echo "  build            - Build everything (Podman image)"
 	@echo "  build-prod       - Production build with optimizations"
 	@echo "  build-release    - Multi-platform release binaries"
 	@echo ""
@@ -32,13 +46,14 @@ help:
 	@echo "  check            - Run all checks (fmt + lint + test)"
 	@echo "  ci               - CI pipeline (install + check + build)"
 	@echo ""
-	@echo "🐳 Docker Operations:"
-	@echo "  docker-build     - Build Docker image"
-	@echo "  docker-build-ghcr - Build Docker image for GitHub Container Registry"
-	@echo "  docker-build-multiarch - Build multi-architecture Docker image"
-	@echo "  docker-push-ghcr - Push Docker image to GitHub Container Registry"
-	@echo "  docker-run       - Run Docker container locally"
-	@echo "  lint-docker      - Lint Dockerfile"
+	@echo "🐳 Podman / container image:"
+	@echo "  podman-build      - Build OCI image (localhost/cloud-manager:latest)"
+	@echo "  podman-build-ghcr - Tag image as GHCR_IMAGE ($(GHCR_IMAGE))"
+	@echo "  podman-build-multiarch - Multi-arch image (amd64, arm64)"
+	@echo "  podman-build-multiarch-push - Multi-arch build and push to GHCR_IMAGE"
+	@echo "  podman-push-ghcr  - Push GHCR_IMAGE (runs podman-build-ghcr first)"
+	@echo "  podman-run        - Run container locally with .env.prod"
+	@echo "  lint-containerfile - Lint Dockerfile with hadolint (podman if hadolint missing)"
 	@echo ""
 	@echo "☁️  AWS IAM Management:"
 	@echo "  deploy-user      - Deploy IAM user and resources"
@@ -51,9 +66,14 @@ help:
 	@echo "  remove-stackset  - Remove StackSet and all instances"
 	@echo "  delete-stackset  - Alias for remove-stackset"
 	@echo "  cli-status       - Show current deployment status"
-	@echo "  deploy HOST=host [USER=user] - Deploy application to specified host using Kubernetes"
+	@echo "  deploy HOST=ssh-target [DOMAIN=app.example.com] [USER=user] - Deploy to k8s via SSH (DOMAIN defaults to HOST)"
+	@echo "                               Example: make deploy HOST=172.19.112.251 USER=ubuntu DOMAIN=iammanager.it.eu-cloud.mirantis.net"
+	@echo "                               If remote says kubectl not found: KUBECTL=/snap/bin/kubectl (or install kubectl on the SSH host)"
 	@echo "                               (automatically uses .env.prod if available)"
 	@echo "                               Includes Let's Encrypt SSL certificate setup"
+	@echo "  install-k0s HOST=ssh-target [USER=ubuntu] [K0S_VERSION=v1.29.2+k0s.0] - Install k0s + kubectl on remote (sudo -n; alias: k0s-deploy)"
+	@echo "  install-ingress-nginx HOST=ssh-target [USER=ubuntu] [INGRESS_HOSTNETWORK=1] - Install ingress-nginx (bare metal); use HOSTNETWORK=1 for :443 on node IP"
+	@echo "  debug-probe-cloudmanager [PROBE_URL=...] - HTTPS probe; appends NDJSON to DEBUG_LOG_PATH (default nanoclaw .cursor/debug-3cd321.log)"
 	@echo ""
 	@echo "🧹 Cleanup:"
 	@echo "  clean            - Clean everything"
@@ -69,10 +89,9 @@ help:
 	@echo "  AZURE_CLIENT_SECRET in .env.prod. See README.md for setup instructions."
 	@echo ""
 	@echo "🚀 CI/CD & Quality:"
-	@echo "  ci               - Run all CI checks locally"
+	@echo "  ci               - Run all CI checks locally (includes podman-build)"
 	@echo "  test-coverage    - Generate test coverage report"
 	@echo "  security-scan    - Run security analysis with gosec"
-	@echo "  lint-docker      - Lint Dockerfile with hadolint"
 	@echo "  validate-workflows - Validate GitHub Actions workflows"
 	@echo "  pre-commit       - Run all pre-commit checks"
 	@echo "  release-build    - Create release build artifacts"
@@ -111,8 +130,8 @@ build-cli:
 # Build Go projects (backend + CLI)
 build-go: build-backend build-cli
 
-# Build everything with Docker
-build: build-frontend docker-build
+# Build everything (OCI image via Podman)
+build: build-frontend podman-build
 
 # Production build with optimizations
 build-prod:
@@ -187,7 +206,8 @@ dev:
 		--from-env-file=.env.prod \
 		--dry-run=client -o yaml | kubectl apply -f -
 	@kubectl apply -f k8s/configmap.yaml
-	@sed 's|image: ghcr.io/rusik69/cloud-manager:latest|image: cloud-manager:dev\n        imagePullPolicy: Never|' \
+	@kubectl apply -f k8s/pvc.yaml
+	@sed 's|image: ghcr.io/mirantis/cloud-manager:latest|image: cloud-manager:dev\n        imagePullPolicy: Never|' \
 		k8s/app-deployment.yaml | kubectl apply -f -
 	@kubectl apply -f k8s/service.yaml
 	@echo "🔄 Forcing pod restart to pick up new image..."
@@ -621,24 +641,33 @@ cli-status: build-cli
 	fi
 
 # Deploy application to specified host using Kubernetes
+# Optional: DEBUG_LOG_PATH, PROBE_URL, DEBUG_SESSION_ID, DEBUG_RUN_ID
+debug-probe-cloudmanager:
+	@python3 "$(CURDIR)/scripts/k8s_debug_probe.py"
+
 deploy:
 	@if [ -z "$(HOST)" ]; then \
-		echo "❌ Error: HOST parameter is required. Usage: make deploy HOST=your-host [USER=username]"; \
+		echo "❌ Error: HOST is required (SSH target). Usage: make deploy HOST=bastion.example.com DOMAIN=app.example.com [USER=ubuntu]"; \
 		exit 1; \
 	fi
 	$(eval TARGET_HOST := $(if $(USER),$(USER)@$(HOST),$(HOST)))
+	$(eval APP_DOMAIN := $(if $(DOMAIN),$(DOMAIN),$(HOST)))
 	@echo "☸️  Deploying application to $(TARGET_HOST) using Kubernetes..."
+	@echo "🌐 Public hostname (Ingress TLS): $(APP_DOMAIN)"
 	@echo "📤 Copying Kubernetes manifests to $(TARGET_HOST)..."
-	@scp -r k8s/ $(TARGET_HOST):~/cloud-manager/
+	@ssh "$(TARGET_HOST)" 'mkdir -p "$$HOME/cloud-manager"'
+	@scp -r k8s/ "$(TARGET_HOST)":~/cloud-manager/
 	@if [ -f .env.prod ]; then \
 		echo "📤 Copying production environment file (.env.prod)..."; \
-		scp .env.prod $(TARGET_HOST):~/cloud-manager/k8s/.env; \
+		scp .env.prod "$(TARGET_HOST)":~/cloud-manager/k8s/.env; \
 	else \
 		echo "⚠️  No .env.prod found, creating from .env.example"; \
-		scp .env.example $(TARGET_HOST):~/cloud-manager/k8s/.env; \
+		scp .env.example "$(TARGET_HOST)":~/cloud-manager/k8s/.env; \
 	fi
 	@echo "☸️  Configuring secrets and deploying to Kubernetes..."
-	@ssh $(TARGET_HOST) 'cd ~/cloud-manager && \
+	@ssh "$(TARGET_HOST)" 'export PATH="$$PATH:/usr/local/bin:/snap/bin"; \
+		command -v $(KUBECTL) >/dev/null 2>&1 || { echo "kubectl not found on remote host (non-interactive PATH). Install kubectl or retry with e.g. KUBECTL=/snap/bin/kubectl"; exit 127; }; \
+		cd ~/cloud-manager && \
 		echo "🔐 Generating admin password..." && \
 		if ! grep -q "^ADMIN_PASSWORD=" k8s/.env 2>/dev/null || [ -z "$$(grep '\''^ADMIN_PASSWORD='\'' k8s/.env | cut -d'\''='\'' -f2)" ]; then \
 			ADMIN_PASSWORD=$$(openssl rand -base64 16 | tr -d "=+/" | cut -c1-16); \
@@ -656,37 +685,48 @@ deploy:
 		fi; \
 		ADMIN_USERNAME=$$(grep '\''^ADMIN_USERNAME='\'' k8s/.env 2>/dev/null | cut -d'\''='\'' -f2 || echo "admin"); \
 		echo "☸️  Creating namespace first..." && \
-		kubectl apply -f k8s/namespace.yaml && \
+		$(KUBECTL) apply -f k8s/namespace.yaml && \
 		echo "🔐 Creating Kubernetes secrets from environment file..." && \
-		kubectl create secret generic app-secrets --namespace=cloud-manager \
+		$(KUBECTL) create secret generic app-secrets --namespace=cloud-manager \
 			--from-env-file=k8s/.env \
-			--dry-run=client -o yaml | kubectl apply -f - && \
-		echo "☸️  Applying cert-manager configuration..." && \
-		kubectl apply -f k8s/cert-manager.yaml && \
-		echo "🔧 Creating certificate for domain $(HOST)..." && \
-		sed "s/DOMAIN_PLACEHOLDER/$(HOST)/g" k8s/certificate.yaml | kubectl apply -f - && \
-		echo "🔧 Creating ingress for domain $(HOST)..." && \
-		sed "s/DOMAIN_PLACEHOLDER/$(HOST)/g" k8s/ingress.yaml | kubectl apply -f - && \
+			--dry-run=client -o yaml | $(KUBECTL) apply -f - && \
+		if ! $(KUBECTL) get crd clusterissuers.cert-manager.io >/dev/null 2>&1; then \
+			echo "📥 Installing cert-manager $(CERT_MANAGER_VERSION) (controller + CRDs)..." && \
+			$(KUBECTL) apply -f "$(CERT_MANAGER_INSTALL_URL)" && \
+			$(KUBECTL) wait --for=condition=Established crd/clusterissuers.cert-manager.io --timeout=120s && \
+			$(KUBECTL) rollout status deployment/cert-manager -n cert-manager --timeout=180s && \
+			$(KUBECTL) rollout status deployment/cert-manager-webhook -n cert-manager --timeout=180s && \
+			$(KUBECTL) rollout status deployment/cert-manager-cainjector -n cert-manager --timeout=180s; \
+		else \
+			echo "✅ cert-manager CRDs already present"; \
+		fi && \
+		echo "☸️  Applying cert-manager ClusterIssuers..." && \
+		$(KUBECTL) apply -f k8s/cert-manager.yaml && \
+		echo "🔧 Creating certificate for domain $(APP_DOMAIN)..." && \
+		sed "s/DOMAIN_PLACEHOLDER/$(APP_DOMAIN)/g" k8s/certificate.yaml | $(KUBECTL) apply -f - && \
+		echo "🔧 Creating ingress for domain $(APP_DOMAIN)..." && \
+		sed "s/DOMAIN_PLACEHOLDER/$(APP_DOMAIN)/g" k8s/ingress.yaml | $(KUBECTL) apply -f - && \
 		echo "☸️  Applying remaining Kubernetes manifests..." && \
-		kubectl apply -f k8s/configmap.yaml && \
-		kubectl apply -f k8s/app-deployment.yaml && \
-		kubectl apply -f k8s/service.yaml'
+		$(KUBECTL) apply -f k8s/configmap.yaml && \
+		$(KUBECTL) apply -f k8s/pvc.yaml && \
+		$(KUBECTL) apply -f k8s/app-deployment.yaml && \
+		$(KUBECTL) apply -f k8s/service.yaml'
 	@echo "✅ Application deployed successfully to Kubernetes cluster on $(TARGET_HOST)"
 	@echo ""
 	@echo "🔐 Admin credentials configured"
-	@ssh $(TARGET_HOST) 'cd ~/cloud-manager && \
+	@ssh "$(TARGET_HOST)" 'cd ~/cloud-manager && \
 		ADMIN_USERNAME=$$(grep '\''^ADMIN_USERNAME='\'' k8s/.env 2>/dev/null | cut -d'\''='\'' -f2 || echo "admin"); \
 		echo "  Username: $$ADMIN_USERNAME"; \
 		echo "  Password stored in k8s/.env file (not displayed for security)"'
 	@echo ""
 	@echo "🌐 External Access Information:"
-	@echo "  📍 HTTPS Access (Port 443): https://$(HOST)"
-	@echo "  📍 HTTP Access (Port 80): http://$(HOST) (redirects to HTTPS)"
+	@echo "  📍 HTTPS Access (Port 443): https://$(APP_DOMAIN)"
+	@echo "  📍 HTTP Access (Port 80): http://$(APP_DOMAIN) (redirects to HTTPS)"
 	@echo "  📍 Via Nginx Ingress Controller with Let's Encrypt SSL"
 	@echo "  📍 Traffic flows: Internet → Ingress (SSL termination) → cloud-manager service → backend"
 	@echo ""
 	@echo "🔍 Checking deployment status..."
-	@ssh $(TARGET_HOST) 'kubectl get pods -n cloud-manager && kubectl get services -n cloud-manager && kubectl get ingress -n cloud-manager && kubectl get certificates -n cloud-manager'
+	@ssh "$(TARGET_HOST)" 'export PATH="$$PATH:/usr/local/bin:/snap/bin"; command -v $(KUBECTL) >/dev/null 2>&1 && $(KUBECTL) get pods -n cloud-manager && $(KUBECTL) get services -n cloud-manager && $(KUBECTL) get ingress -n cloud-manager && $(KUBECTL) get certificates -n cloud-manager'
 	@echo ""
 	@echo "🔒 SSL Certificate Information:"
 	@echo "   • Let's Encrypt certificate will be automatically provisioned"
@@ -694,11 +734,88 @@ deploy:
 	@echo "   • Certificate issuer: letsencrypt-prod"
 	@echo ""
 	@echo "💡 External Access:"
-	@echo "   • Primary: https://$(HOST) (HTTPS with Let's Encrypt SSL)"
-	@echo "   • Fallback: http://$(HOST) (redirects to HTTPS)"
+	@echo "   • Primary: https://$(APP_DOMAIN) (HTTPS with Let's Encrypt SSL)"
+	@echo "   • Fallback: http://$(APP_DOMAIN) (redirects to HTTPS)"
 	@echo "   • Requires: Nginx Ingress Controller + cert-manager"
 	@echo "   • Authentication is handled by the application (admin username/password)"
 	@echo "   • Make sure ports 80 and 443 are open in your firewall/security groups"
+
+# Install k0s (single-controller + embedded etcd) and upstream kubectl on a remote host. Requires passwordless sudo (sudo -n).
+# Optional K0S_VERSION pins get.k0s.sh (e.g. v1.29.2+k0s.0); kubectl version is derived (same minor) or stable.
+install-k0s:
+	@if [ -z "$(HOST)" ]; then \
+		echo "❌ Usage: make install-k0s HOST=host [USER=ubuntu] [K0S_VERSION=v1.29.2+k0s.0]"; \
+		exit 1; \
+	fi
+	$(eval TARGET_HOST := $(if $(USER),$(USER)@$(HOST),$(HOST)))
+	@echo "📦 Installing k0s + kubectl on $(TARGET_HOST) (single-node controller)..."
+	@ssh -o BatchMode=yes "$(TARGET_HOST)" 'set -e; \
+		export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"; \
+		$(if $(K0S_VERSION),export K0S_VERSION="$(K0S_VERSION)";,) \
+		if ! sudo -n true 2>/dev/null; then \
+			echo "❌ This host needs non-interactive sudo (configure NOPASSWD for the SSH user, or run install manually)."; \
+			exit 1; \
+		fi; \
+		if [ -f /etc/systemd/system/k0scontroller.service ] || [ -f /lib/systemd/system/k0scontroller.service ] || [ -f /usr/lib/systemd/system/k0scontroller.service ]; then \
+			echo "✅ k0s controller unit already present; ensuring service is started..."; \
+			sudo k0s start || sudo systemctl start k0scontroller.service || true; \
+		else \
+			curl -sSLf https://get.k0s.sh | sudo sh; \
+			sudo k0s install controller --single; \
+			sudo k0s start; \
+		fi; \
+		echo "⏳ Waiting for node Ready..."; \
+		n=0; \
+		until sudo k0s kubectl get nodes 2>/dev/null | grep -qE "\sReady\s"; do \
+			n=$$((n+1)); \
+			if [ "$$n" -gt 90 ]; then echo "❌ Timeout waiting for k0s node"; exit 1; fi; \
+			sleep 2; \
+		done; \
+		sudo k0s kubectl get nodes; \
+		mkdir -p "$$HOME/.kube"; \
+		sudo k0s kubeconfig admin > "$$HOME/.kube/config"; \
+		chmod 600 "$$HOME/.kube/config"; \
+		echo "📥 Installing kubectl (kubernetes.io release)..."; \
+		ARCH=$$(uname -m); \
+		case $$ARCH in x86_64) K_ARCH=amd64;; aarch64|arm64) K_ARCH=arm64;; *) echo "❌ unsupported arch: $$ARCH"; exit 1;; esac; \
+		KUBE_VER=$$(echo "$${K0S_VERSION:-}" | cut -d+ -f1); \
+		if [ -z "$$KUBE_VER" ]; then \
+			KUBE_VER=$$(sudo k0s version 2>/dev/null | tr -d '\r' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+		fi; \
+		if [ -z "$$KUBE_VER" ]; then \
+			KUBE_VER=$$(curl -Ls https://dl.k8s.io/release/stable.txt); \
+		fi; \
+		curl -sSLf -o /tmp/kubectl.bin "https://dl.k8s.io/release/$${KUBE_VER}/bin/linux/$${K_ARCH}/kubectl"; \
+		sudo install -m 0755 /tmp/kubectl.bin /usr/local/bin/kubectl; \
+		rm -f /tmp/kubectl.bin; \
+		kubectl version --client; \
+		echo "✅ kubeconfig: ~/.kube/config — run: kubectl get nodes"'
+
+k0s-deploy: install-k0s
+
+# Install ingress-nginx controller (bare-metal / NodePort manifest). Run on the SSH host that has kubectl.
+# INGRESS_HOSTNETWORK=1 patches the controller to listen on the node’s real :80/:443 (needed if DNS points to the node and you see “connection refused”).
+install-ingress-nginx:
+	@if [ -z "$(HOST)" ]; then \
+		echo "❌ Usage: make install-ingress-nginx HOST=host [USER=ubuntu] [INGRESS_HOSTNETWORK=1] [INGRESS_NGINX_TAG=v1.11.2]"; \
+		exit 1; \
+	fi
+	$(eval TARGET_HOST := $(if $(USER),$(USER)@$(HOST),$(HOST)))
+	@echo "📥 Installing ingress-nginx ($(INGRESS_NGINX_TAG)) on $(TARGET_HOST)..."
+	@if [ "$(INGRESS_HOSTNETWORK)" = "1" ]; then \
+		scp -q k8s/ingress-nginx-hostnetwork-patch.json "$(TARGET_HOST)":/tmp/ing-hostnet-patch.json; \
+	fi
+	@ssh -o BatchMode=yes "$(TARGET_HOST)" 'set -e; \
+		export PATH="$$PATH:/usr/local/bin:/snap/bin"; \
+		command -v $(KUBECTL) >/dev/null 2>&1 || { echo "❌ kubectl not found on remote"; exit 127; }; \
+		$(KUBECTL) apply -f "$(INGRESS_BAREMETAL_URL)" && \
+		$(KUBECTL) wait --namespace ingress-nginx --for=condition=available deployment/ingress-nginx-controller --timeout=300s && \
+		if [ "$(INGRESS_HOSTNETWORK)" = "1" ]; then \
+			echo "🔧 Patching ingress-nginx for hostNetwork (bind :80/:443 on this node)..." && \
+			$(KUBECTL) patch deployment ingress-nginx-controller -n ingress-nginx --type=strategic --patch-file /tmp/ing-hostnet-patch.json && \
+			$(KUBECTL) rollout status deployment/ingress-nginx-controller -n ingress-nginx --timeout=300s; \
+		fi && \
+		echo "✅ ingress-nginx ready. Check: $(KUBECTL) get svc,pods -n ingress-nginx"'
 
 # Validate production environment file
 validate-prod-env:
@@ -754,7 +871,7 @@ install-linter:
 # ============================================================================
 
 # Run all CI checks locally
-ci: check test-coverage docker-build
+ci: check test-coverage podman-build
 	@echo "✅ All CI checks completed successfully"
 
 # Generate test coverage report
@@ -775,53 +892,50 @@ security-scan:
 	gosec ./...
 
 # Lint Dockerfile with hadolint
-lint-docker:
+lint-containerfile:
 	@echo "🐳 Linting Dockerfile..."
 	@if command -v hadolint >/dev/null 2>&1; then \
 		hadolint Dockerfile; \
 	else \
-		docker run --rm -i hadolint/hadolint < Dockerfile; \
+		podman run --rm -i docker.io/hadolint/hadolint:latest < Dockerfile; \
 	fi
 
-# Build Docker image
-docker-build: build-frontend
-	@echo "🐳 Building Docker image..."
-	docker build -t cloud-manager:latest .
+# Build OCI image (Podman)
+podman-build: build-frontend
+	@echo "🐳 Building container image with Podman..."
+	podman build -t cloud-manager:latest .
 
-# Build and tag Docker image for GitHub Container Registry
-docker-build-ghcr: build-frontend
-	@echo "🐳 Building Docker image for GHCR..."
-	docker build -t ghcr.io/rusik69/cloud-manager:latest .
+# Build and tag for GHCR (see GHCR_IMAGE)
+podman-build-ghcr: build-frontend
+	@echo "🐳 Building container image for GHCR ($(GHCR_IMAGE))..."
+	podman build -t $(GHCR_IMAGE) .
 
-# Build multi-architecture Docker image
-docker-build-multiarch: build-frontend
-	@echo "🐳 Building multi-architecture Docker image..."
-	docker buildx create --use --name multiarch-builder || true
-	docker buildx build --platform linux/amd64,linux/arm64 -t cloud-manager:latest .
-	docker buildx rm multiarch-builder
+# Multi-architecture image (local manifest)
+podman-build-multiarch: build-frontend
+	@echo "🐳 Building multi-architecture image..."
+	podman build --platform linux/amd64,linux/arm64 -t cloud-manager:latest .
 
-# Build multi-architecture Docker image and push to registry
-docker-build-multiarch-push: build-frontend
-	@echo "🐳 Building and pushing multi-architecture Docker image..."
-	docker buildx create --use --name multiarch-builder || true
-	docker buildx build --platform linux/amd64,linux/arm64 --push -t $(IMAGE_TAG) .
-	docker buildx rm multiarch-builder
+# Multi-architecture build and push (override GHCR_IMAGE for tag)
+podman-build-multiarch-push: build-frontend
+	@echo "🐳 Building and pushing multi-architecture image to $(GHCR_IMAGE)..."
+	podman build --platform linux/amd64,linux/arm64 -t $(GHCR_IMAGE) .
+	podman push $(GHCR_IMAGE)
 
-# Push Docker image to GitHub Container Registry
-docker-push-ghcr: docker-build-ghcr
-	@echo "📤 Pushing Docker image to GHCR..."
-	docker push ghcr.io/rusik69/cloud-manager:latest
+# Push to GHCR
+podman-push-ghcr: podman-build-ghcr
+	@echo "📤 Pushing $(GHCR_IMAGE)..."
+	podman push $(GHCR_IMAGE)
 
-# Run Docker container locally
-docker-run:
-	@echo "🐳 Running Docker container locally..."
-	docker run -d -p 8080:8080 --name cloud-manager \
+# Run container locally
+podman-run:
+	@echo "🐳 Running container locally..."
+	podman run -d -p 8080:8080 --name cloud-manager \
 		--env-file .env.prod \
 		cloud-manager:latest
 	@echo "✅ Container started successfully"
 	@echo "📍 Application available at: http://localhost:8080"
-	@echo "💡 To stop: docker stop cloud-manager"
-	@echo "💡 To remove: docker rm cloud-manager"
+	@echo "💡 To stop: podman stop cloud-manager"
+	@echo "💡 To remove: podman rm cloud-manager"
 
 # Validate GitHub Actions workflows
 validate-workflows:
@@ -835,7 +949,7 @@ validate-workflows:
 	fi
 
 # Pre-commit checks (run before committing)
-pre-commit: fmt lint test security-scan lint-docker validate-workflows
+pre-commit: fmt lint test security-scan lint-containerfile validate-workflows
 	@echo "✅ All pre-commit checks passed"
 
 # Create release build

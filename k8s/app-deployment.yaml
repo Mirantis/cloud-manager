@@ -18,9 +18,15 @@ spec:
         app.kubernetes.io/name: cloud-manager
         app.kubernetes.io/component: app
     spec:
+      securityContext:
+        fsGroup: 1000
       containers:
       - name: cloud-manager
-        image: ghcr.io/rusik69/cloud-manager:latest
+        image: ghcr.io/mirantis/cloud-manager:latest
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
         ports:
         - containerPort: 8080
           name: http
@@ -29,6 +35,9 @@ spec:
             name: app-secrets
         - configMapRef:
             name: app-config
+        volumeMounts:
+        - name: app-data
+          mountPath: /data
         livenessProbe:
           httpGet:
             path: /ping
@@ -48,3 +57,7 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
+      volumes:
+      - name: app-data
+        persistentVolumeClaim:
+          claimName: cloud-manager-data

@@ -33,7 +33,10 @@ func main() {
 	cfg := config.LoadConfig()
 	log.Printf("[INFO] Configuration loaded successfully")
 
-	srv := server.NewServer(cfg)
+	srv, err := server.NewServer(cfg)
+	if err != nil {
+		log.Fatalf("[FATAL] Failed to initialize server: %v", err)
+	}
 	log.Printf("[INFO] Server instance created")
 
 	if err := srv.Start(); err != nil {

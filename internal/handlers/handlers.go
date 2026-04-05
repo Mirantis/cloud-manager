@@ -2,27 +2,32 @@
 package handlers
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/rusik69/aws-iam-manager/internal/config"
+	"github.com/rusik69/aws-iam-manager/internal/db"
 	"github.com/rusik69/aws-iam-manager/internal/middleware"
 	"github.com/rusik69/aws-iam-manager/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Handler struct {
 	awsService services.AWSServiceInterface
 	config     config.Config
+	appDB      *db.DB
 }
 
-func NewHandler(awsService services.AWSServiceInterface, cfg config.Config) *Handler {
+func NewHandler(awsService services.AWSServiceInterface, cfg config.Config, appDB *db.DB) *Handler {
 	return &Handler{
 		awsService: awsService,
 		config:     cfg,
+		appDB:      appDB,
 	}
 }
 
@@ -109,7 +114,8 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	if req.Username != h.config.AdminUsername || req.Password != h.config.AdminPassword {
+	user, err := h.appDB.ValidateCredentials(req.Username, req.Password)
+	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error":   "Invalid credentials",
 			"message": "Username or password is incorrect",
@@ -119,15 +125,16 @@ func (h *Handler) Login(c *gin.Context) {
 
 	// Create session
 	sessionID := middleware.GenerateSessionID()
-	middleware.GetSessionStore().SetSession(sessionID, req.Username)
+	middleware.GetSessionStore().SetSession(sessionID, user.Username, user.Role)
 
 	// Set cookie - Secure=false for local development (HTTP), set to true in production (HTTPS)
 	// SameSite=Lax allows cookies to be sent with same-site requests
 	c.SetCookie("session_id", sessionID, int(24*time.Hour.Seconds()), "/", "", false, false)
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":      "Login successful",
-		"username":     req.Username,
+		"message":       "Login successful",
+		"username":      user.Username,
+		"role":          user.Role,
 		"authenticated": true,
 	})
 }
@@ -170,6 +177,7 @@ func (h *Handler) CheckAuth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"authenticated": true,
 		"username":     session.Username,
+		"role":         session.Role,
 	})
 }
 
@@ -181,11 +189,110 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 		})
 		return
 	}
+	role, _ := middleware.GetCurrentRole(c)
 
 	c.JSON(http.StatusOK, gin.H{
 		"username":      username,
+		"role":          role,
 		"authenticated": true,
 	})
+}
+
+func validAppRole(role string) bool {
+	switch role {
+	case "admin", "editor", "viewer":
+		return true
+	default:
+		return false
+	}
+}
+
+// CreateAppUserRequest is the body for POST /api/admin/users.
+type CreateAppUserRequest struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+	Role     string `json:"role" binding:"required"`
+}
+
+// CreateAppUser creates a new application user (admin only).
+func (h *Handler) CreateAppUser(c *gin.Context) {
+	var req CreateAppUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "username, password, and role are required"})
+		return
+	}
+	if !validAppRole(req.Role) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "role must be admin, editor, or viewer"})
+		return
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		return
+	}
+	if err := h.appDB.AddUser(req.Username, string(hash), req.Role); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "user already exists or could not be created"})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"message": "User created", "username": req.Username, "role": req.Role})
+}
+
+// ListAppUsers lists all application users (admin only).
+func (h *Handler) ListAppUsers(c *gin.Context) {
+	users, err := h.appDB.ListUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, users)
+}
+
+// DeleteAppUser removes an application user (admin only).
+func (h *Handler) DeleteAppUser(c *gin.Context) {
+	target := c.Param("username")
+	self, _ := middleware.GetCurrentUser(c)
+	if target == self {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete your own account"})
+		return
+	}
+	if err := h.appDB.DeleteUser(target); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "User deleted"})
+}
+
+// UpdateAppUserPasswordRequest resets a user's password (admin only).
+type UpdateAppUserPasswordRequest struct {
+	Password string `json:"password" binding:"required"`
+}
+
+// UpdateAppUserPassword sets a new password for a user (admin only).
+func (h *Handler) UpdateAppUserPassword(c *gin.Context) {
+	target := c.Param("username")
+	var req UpdateAppUserPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password is required"})
+		return
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		return
+	}
+	if err := h.appDB.UpdatePassword(target, string(hash)); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Password updated"})
 }
 
 func (h *Handler) GetUser(c *gin.Context) {

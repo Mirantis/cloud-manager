@@ -27,6 +27,8 @@ import SSOGroupDetail from './components/SSOGroupDetail.vue'
 import SSOUserAssignments from './components/SSOUserAssignments.vue'
 import SSOAccountAssignments from './components/SSOAccountAssignments.vue'
 import SSOAccountDetail from './components/SSOAccountDetail.vue'
+import AdminUsers from './components/AdminUsers.vue'
+import { authStore } from './authStore'
 
 const routes = [
   { path: '/login', name: 'Login', component: Login },
@@ -59,6 +61,7 @@ const routes = [
   { path: '/azure/enterprise-apps', name: 'AzureEnterpriseApps', component: AzureEnterpriseApps, meta: { requiresAuth: true } },
   { path: '/azure/vms', name: 'AzureVMs', component: AzureVMs, meta: { requiresAuth: true } },
   { path: '/azure/storage', name: 'AzureStorage', component: AzureStorage, meta: { requiresAuth: true } },
+  { path: '/admin/users', name: 'AdminUsers', component: AdminUsers, meta: { requiresAuth: true, requiresAdmin: true } },
   // Legacy route redirects for backward compatibility
   { path: '/public-ips', redirect: '/aws/public-ips' },
   { path: '/security-groups', redirect: '/aws/security-groups' },
@@ -90,6 +93,9 @@ router.beforeEach(async (to, from, next) => {
       })
       const data = await response.json()
       if (data.authenticated) {
+        authStore.authenticated = true
+        authStore.username = data.username || ''
+        authStore.role = data.role || ''
         next('/aws/users')
         return
       }
@@ -108,11 +114,24 @@ router.beforeEach(async (to, from, next) => {
       })
       const data = await response.json()
       if (data.authenticated) {
+        authStore.authenticated = true
+        authStore.username = data.username || ''
+        authStore.role = data.role || ''
+        if (to.meta.requiresAdmin && data.role !== 'admin') {
+          next('/aws/users')
+          return
+        }
         next()
       } else {
+        authStore.authenticated = false
+        authStore.username = ''
+        authStore.role = ''
         next('/login')
       }
     } catch (err) {
+      authStore.authenticated = false
+      authStore.username = ''
+      authStore.role = ''
       next('/login')
     }
   } else {
@@ -122,4 +141,12 @@ router.beforeEach(async (to, from, next) => {
 
 const app = createApp(App)
 app.use(router)
+app.mixin({
+  computed: {
+    canModify() {
+      const r = authStore.role
+      return r === 'admin' || r === 'editor'
+    }
+  }
+})
 app.mount('#app')

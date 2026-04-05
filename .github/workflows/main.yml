@@ -7,10 +7,12 @@ on:
     branches: [ main ]
   release:
     types: [ published ]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  # Published OCI image (not the Go module path). Requires a repo under the Mirantis org (or equivalent GHCR write access to this path).
+  IMAGE_NAME: mirantis/cloud-manager
 
 jobs:
   test-and-build:
@@ -79,53 +81,20 @@ jobs:
       - name: Validate Makefile
         run: make help
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+      - name: Install Podman
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y podman
 
-      - name: Log in to Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build container image
+        run: podman build -t cloud-manager:ci .
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          load: ${{ github.event_name == 'pull_request' }}
-
-      - name: Scan Docker image for vulnerabilities
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          scan-type: image
-          image-ref: >-
-            ${{ github.event_name == 'pull_request'
-              && format('{0}/{1}:pr-{2}', env.REGISTRY, env.IMAGE_NAME, github.event.number)
-              || format('{0}/{1}:latest', env.REGISTRY, env.IMAGE_NAME) }}
-          format: sarif
-          output: trivy-image-results.sarif
-          severity: CRITICAL,HIGH
-          exit-code: '0'
+      - name: Scan container image for vulnerabilities
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.58.0
+          podman save cloud-manager:ci -o /tmp/cloud-manager-ci.tar
+          trivy image --format sarif --output trivy-image-results.sarif \
+            --severity CRITICAL,HIGH --exit-code 0 --input /tmp/cloud-manager-ci.tar
 
       - name: Upload Trivy image scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4
@@ -133,49 +102,76 @@ jobs:
           sarif_file: trivy-image-results.sarif
           category: trivy-image
 
-      - name: Test Docker image
+      - name: Test container image
         run: |
-          # Use the built image for testing
-          IMAGE_TAG=${{ github.event_name == 'pull_request' && 'aws-iam-manager:latest' || format('{0}/{1}:latest', env.REGISTRY, env.IMAGE_NAME) }}
-
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            IMAGE_TAG="aws-iam-manager:latest"
-          else
-            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-          fi
-
-          docker run --rm -d -p 8080:8080 --name test-container \
+          podman run --rm -d -p 8080:8080 --name test-container \
             -e AWS_ACCESS_KEY_ID=test \
             -e AWS_SECRET_ACCESS_KEY=test \
             -e AWS_REGION=us-east-1 \
-            $IMAGE_TAG
+            cloud-manager:ci
 
-          # Wait for container to start
           sleep 15
 
-          # Test health endpoint
           if curl -f http://localhost:8080/ --max-time 10; then
             echo "✅ Container health check passed"
           else
             echo "❌ Container health check failed"
-            docker logs test-container
+            podman logs test-container
             exit 1
           fi
 
-          # Cleanup
-          docker stop test-container
+          podman stop test-container
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Push container image to GHCR
+        if: github.event_name != 'pull_request'
+        run: |
+          set -eux
+          REG="${{ env.REGISTRY }}"
+          NAME="${{ env.IMAGE_NAME }}"
+          SRC="cloud-manager:ci"
+          SHORT_SHA="$(echo '${{ github.sha }}' | cut -c1-7)"
+
+          podman tag "$SRC" "${REG}/${NAME}:sha-${SHORT_SHA}"
+          podman push "${REG}/${NAME}:sha-${SHORT_SHA}"
+
+          case "${{ github.ref }}" in
+            refs/heads/main)
+              podman tag "$SRC" "${REG}/${NAME}:latest"
+              podman push "${REG}/${NAME}:latest"
+              ;;
+            refs/heads/develop)
+              podman tag "$SRC" "${REG}/${NAME}:develop"
+              podman push "${REG}/${NAME}:develop"
+              ;;
+          esac
+
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+            podman tag "$SRC" "${REG}/${NAME}:${TAG}"
+            podman push "${REG}/${NAME}:${TAG}"
+            podman tag "$SRC" "${REG}/${NAME}:latest"
+            podman push "${REG}/${NAME}:latest"
+          fi
 
 
       - name: Generate deployment summary
         if: github.event_name != 'pull_request'
         run: |
-          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## Container image (GHCR)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`:latest\` — pushes from \`main\` only" >> $GITHUB_STEP_SUMMARY
+          echo "- \`:develop\` — pushes from \`develop\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`:sha-<short>\` — every non-PR build" >> $GITHUB_STEP_SUMMARY
+          echo "- \`:<release-tag>\` — GitHub Release published" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Quick Start:**" >> $GITHUB_STEP_SUMMARY
+          echo "**Run locally:**" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "docker run -d -p 8080:8080 \\" >> $GITHUB_STEP_SUMMARY
+          echo "podman run -d -p 8080:8080 \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e AWS_ACCESS_KEY_ID=your-access-key \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e AWS_SECRET_ACCESS_KEY=your-secret-key \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e AWS_REGION=us-east-1 \\" >> $GITHUB_STEP_SUMMARY

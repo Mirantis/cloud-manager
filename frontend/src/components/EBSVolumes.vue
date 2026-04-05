@@ -21,6 +21,7 @@
         </div>
         <div class="header-actions">
           <button 
+            v-if="canModify"
             @click="deleteAllAvailableVolumes" 
             class="btn btn-danger" 
             :disabled="loading || !filterAccount || availableVolumesCount === 0"
@@ -32,6 +33,7 @@
             Delete All Available ({{ availableVolumesCount }})
           </button>
           <button 
+            v-if="canModify"
             @click="deleteAllOldAvailableVolumes" 
             class="btn btn-danger" 
             :disabled="loading || !filterAccount || oldAvailableVolumesCount === 0"
@@ -248,7 +250,7 @@
                 <span v-else class="not-attached">Not attached</span>
               </td>
               <td>
-                <div class="action-buttons">
+                <div class="action-buttons" v-if="canModify">
                   <!-- Available volumes: Delete button -->
                   <button
                     v-if="volume.state === 'available'"
@@ -474,11 +476,12 @@ export default {
       }
     },
     async refreshData() {
-      // Invalidate cache before refreshing
-      try {
-        await axios.post('/api/cache/ebs-volumes/invalidate')
-      } catch (error) {
-        console.warn('Failed to invalidate cache:', error)
+      if (this.canModify) {
+        try {
+          await axios.post('/api/cache/ebs-volumes/invalidate')
+        } catch (error) {
+          console.warn('Failed to invalidate cache:', error)
+        }
       }
       await this.loadData()
     },

@@ -6,11 +6,12 @@ import (
 
 // Config holds application configuration
 type Config struct {
-	Port         string
-	AWSRegion    string
-	RoleName     string
+	Port          string
+	AWSRegion     string
+	RoleName      string
 	AdminUsername string
 	AdminPassword string
+	DBPath        string
 }
 
 // LoadConfig creates and returns application configuration from environment variables
@@ -40,11 +41,17 @@ func LoadConfig() Config {
 		adminPassword = "admin" // Default for development only
 	}
 
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "./iam-manager.db"
+	}
+
 	return Config{
-		Port:         port,
-		AWSRegion:    region,
-		RoleName:     roleName,
+		Port:          port,
+		AWSRegion:     region,
+		RoleName:      roleName,
 		AdminUsername: adminUsername,
 		AdminPassword: adminPassword,
+		DBPath:        dbPath,
 	}
 }

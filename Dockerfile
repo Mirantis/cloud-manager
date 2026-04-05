@@ -20,9 +20,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o 
 
 # Final stage
 FROM alpine:latest
+# Fixed uid/gid so Kubernetes securityContext fsGroup/runAsUser match the image.
 RUN apk --no-cache add ca-certificates tzdata && \
-    addgroup -S appgroup && \
-    adduser -S appuser -G appgroup
+    addgroup -g 1000 appgroup && \
+    adduser -u 1000 -G appgroup -D appuser
 WORKDIR /app
 COPY --from=backend-builder --chown=appuser:appgroup /app/server .
 COPY --from=frontend-builder --chown=appuser:appgroup /app/frontend/dist ./frontend/dist

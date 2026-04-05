@@ -185,6 +185,7 @@
               <td>
                 <div class="action-buttons">
                   <button
+                    v-if="canModify"
                     @click="deleteBucket(bucket)"
                     class="action-btn action-btn-delete"
                     :disabled="loading"
@@ -315,11 +316,12 @@ export default {
       }
     },
     async refreshData() {
-      // Invalidate cache before refreshing
-      try {
-        await axios.post('/api/cache/s3-buckets/invalidate')
-      } catch (error) {
-        console.warn('Failed to invalidate cache:', error)
+      if (this.canModify) {
+        try {
+          await axios.post('/api/cache/s3-buckets/invalidate')
+        } catch (error) {
+          console.warn('Failed to invalidate cache:', error)
+        }
       }
       await this.loadData()
     },

@@ -270,16 +270,16 @@ export default {
     },
     
     async refreshData() {
-      try {
-        // Invalidate public IPs cache before refreshing
-        const response = await fetch('/api/cache/public-ips/invalidate', { method: 'POST' })
-        if (!response.ok) {
-          console.warn('Failed to invalidate cache')
+      if (this.canModify) {
+        try {
+          const response = await fetch('/api/cache/public-ips/invalidate', { method: 'POST', credentials: 'include' })
+          if (!response.ok) {
+            console.warn('Failed to invalidate cache')
+          }
+        } catch (error) {
+          console.warn('Failed to invalidate public IPs cache:', error)
         }
-      } catch (error) {
-        console.warn('Failed to invalidate public IPs cache:', error)
       }
-      
       await this.loadPublicIPs()
     },
     sortBy(field) {

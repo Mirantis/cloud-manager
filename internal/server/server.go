@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/rusik69/aws-iam-manager/internal/config"
+	"github.com/rusik69/aws-iam-manager/internal/db"
 	"github.com/rusik69/aws-iam-manager/internal/handlers"
 	"github.com/rusik69/aws-iam-manager/internal/middleware"
 	"github.com/rusik69/aws-iam-manager/internal/services"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Frontend files are served from filesystem
@@ -27,9 +29,24 @@ type Server struct {
 	ssoInitError    error
 }
 
-func NewServer(cfg config.Config) *Server {
+func NewServer(cfg config.Config) (*Server, error) {
+	appDB, err := db.Open(cfg.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(cfg.AdminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		appDB.Close()
+		return nil, fmt.Errorf("hash admin password: %w", err)
+	}
+	if err := appDB.UpsertUser(cfg.AdminUsername, string(hash), "admin"); err != nil {
+		appDB.Close()
+		return nil, fmt.Errorf("seed admin user: %w", err)
+	}
+	log.Printf("[INFO] Application users database: %s", cfg.DBPath)
+
 	awsService := services.NewAWSService(cfg)
-	handler := handlers.NewHandler(awsService, cfg)
+	handler := handlers.NewHandler(awsService, cfg, appDB)
 
 	// Initialize Azure handler (optional - will log error if credentials not configured)
 	var azureHandler *handlers.AzureHandler
@@ -73,7 +90,7 @@ func NewServer(cfg config.Config) *Server {
 		azureRMHandler: azureRMHandler,
 		ssoHandler:     ssoHandler,
 		ssoInitError:   ssoInitError,
-	}
+	}, nil
 }
 
 // customLogger is a logging middleware that skips health check endpoints
@@ -147,9 +164,21 @@ func (s *Server) SetupRoutes() *gin.Engine {
 		api.GET("/auth/check", s.handler.CheckAuth)
 	}
 
+	// Admin-only application user management
+	adminAPI := r.Group("/api/admin")
+	adminAPI.Use(middleware.AuthMiddleware())
+	adminAPI.Use(middleware.AdminMiddleware())
+	{
+		adminAPI.POST("/users", s.handler.CreateAppUser)
+		adminAPI.GET("/users", s.handler.ListAppUsers)
+		adminAPI.DELETE("/users/:username", s.handler.DeleteAppUser)
+		adminAPI.PUT("/users/:username/password", s.handler.UpdateAppUserPassword)
+	}
+
 	// Protected API routes (require authentication)
 	apiProtected := r.Group("/api")
 	apiProtected.Use(middleware.AuthMiddleware())
+	apiProtected.Use(middleware.WriteAccessMiddleware())
 	{
 		// Authentication info route
 		apiProtected.GET("/auth/user", s.handler.GetCurrentUser)

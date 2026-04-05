@@ -154,7 +154,7 @@
               </td>
               <td>{{ vm.os_type || 'N/A' }}</td>
               <td>
-                <div class="action-buttons">
+                <div class="action-buttons" v-if="canModify">
                   <button
                     v-if="vm.status && vm.status.toLowerCase() !== 'running'"
                     @click="startVM(vm)"

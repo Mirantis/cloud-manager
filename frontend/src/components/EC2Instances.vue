@@ -21,6 +21,7 @@
         </div>
         <div class="header-actions">
           <button 
+            v-if="canModify"
             @click="terminateAllStoppedInstances" 
             class="btn btn-danger" 
             :disabled="loading || !filterAccount || stoppedInstancesCount === 0"
@@ -206,7 +207,7 @@
                 </span>
               </td>
               <td>
-                <div class="action-buttons">
+                <div class="action-buttons" v-if="canModify">
                   <button
                     v-if="instance.state === 'running'"
                     @click="stopInstance(instance)"
@@ -378,11 +379,12 @@ export default {
       }
     },
     async refreshData() {
-      // Invalidate cache before refreshing
-      try {
-        await axios.post('/api/cache/ec2-instances/invalidate')
-      } catch (error) {
-        console.warn('Failed to invalidate cache:', error)
+      if (this.canModify) {
+        try {
+          await axios.post('/api/cache/ec2-instances/invalidate')
+        } catch (error) {
+          console.warn('Failed to invalidate cache:', error)
+        }
       }
       await this.loadData()
     },

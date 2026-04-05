@@ -49,6 +49,21 @@
         </div>
       </div>
 
+      <!-- Admin Section -->
+      <div class="sidebar-section" v-if="userRole === 'admin'">
+        <div class="section-header" @click="toggleAdmin">
+          <div class="section-title">
+            <span>Admin</span>
+          </div>
+          <svg class="section-arrow" :class="{ 'expanded': adminExpanded }" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/>
+          </svg>
+        </div>
+        <div class="section-tabs" v-if="adminExpanded">
+          <router-link to="/admin/users" class="sidebar-link">User Management</router-link>
+        </div>
+      </div>
+
       <!-- Azure Section -->
       <div class="sidebar-section">
         <div class="section-header" @click="toggleAzure">
@@ -81,7 +96,7 @@
           </div>
           <div class="header-spacer"></div>
           <div v-if="isAuthenticated" class="user-info">
-            <span class="username">{{ username }}</span>
+            <span class="username">{{ username }}<span v-if="userRole" class="role-badge">{{ userRole }}</span></span>
             <button @click="handleLogout" class="logout-btn">Logout</button>
           </div>
           <button @click="toggleTheme" class="theme-btn">
@@ -101,6 +116,8 @@
 </template>
 
 <script>
+import { authStore } from './authStore'
+
 export default {
   name: 'App',
   data() {
@@ -108,13 +125,19 @@ export default {
       isDarkTheme: false,
       isAuthenticated: false,
       username: '',
+      userRole: '',
       awsExpanded: true,
       azureExpanded: true,
+      adminExpanded: true,
       sidebarCollapsed: false,
       isMobile: false
     }
   },
   methods: {
+    toggleAdmin() {
+      this.adminExpanded = !this.adminExpanded
+      localStorage.setItem('adminExpanded', this.adminExpanded.toString())
+    },
     toggleAWS() {
       this.awsExpanded = !this.awsExpanded
       localStorage.setItem('awsExpanded', this.awsExpanded.toString())
@@ -159,9 +182,17 @@ export default {
         const data = await response.json()
         this.isAuthenticated = data.authenticated || false
         this.username = data.username || ''
+        this.userRole = data.role || ''
+        authStore.authenticated = this.isAuthenticated
+        authStore.username = this.username
+        authStore.role = this.userRole
       } catch (err) {
         this.isAuthenticated = false
         this.username = ''
+        this.userRole = ''
+        authStore.authenticated = false
+        authStore.username = ''
+        authStore.role = ''
       }
     },
     async handleLogout() {
@@ -172,11 +203,19 @@ export default {
         })
         this.isAuthenticated = false
         this.username = ''
+        this.userRole = ''
+        authStore.authenticated = false
+        authStore.username = ''
+        authStore.role = ''
         this.$router.push('/login')
       } catch (err) {
         // Even if logout fails, redirect to login
         this.isAuthenticated = false
         this.username = ''
+        this.userRole = ''
+        authStore.authenticated = false
+        authStore.username = ''
+        authStore.role = ''
         this.$router.push('/login')
       }
     }
@@ -194,6 +233,10 @@ export default {
     }
     if (azureExpanded !== null) {
       this.azureExpanded = azureExpanded === 'true'
+    }
+    const adminExpanded = localStorage.getItem('adminExpanded')
+    if (adminExpanded !== null) {
+      this.adminExpanded = adminExpanded === 'true'
     }
     
     // Handle window resize
@@ -547,6 +590,17 @@ header {
 .username {
   color: var(--color-text-secondary);
   font-size: 0.9rem;
+}
+
+.role-badge {
+  margin-left: 0.5rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-tertiary);
+  font-weight: 600;
 }
 
 .logout-btn {

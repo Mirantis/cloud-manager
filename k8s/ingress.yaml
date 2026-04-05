@@ -16,8 +16,8 @@ metadata:
     nginx.ingress.kubernetes.io/cors-allow-origin: "*"
     nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
     nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization"
-    # Let's Encrypt certificate management
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # TLS is issued by k8s/certificate.yaml (Certificate → secret cloud-manager-tls). Omit ingress-shim
+    # annotation here to avoid a duplicate Certificate fighting the same secret name.
     # Force SSL redirect
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 spec:
@@ -27,30 +27,9 @@ spec:
     - DOMAIN_PLACEHOLDER
     secretName: cloud-manager-tls
   rules:
-  # Primary domain (from HOST variable)
+  # Only this host is routed to cloud-manager (safe on a shared ingress where port 80 serves other apps).
   - host: DOMAIN_PLACEHOLDER
     http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: cloud-manager
-            port:
-              number: 8080
-  # For external access via IP or custom domain (configurable)
-  - host: "*.amazonaws.com"
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: cloud-manager
-            port:
-              number: 8080
-  # For local testing and direct IP access
-  - http:
       paths:
       - path: /
         pathType: Prefix

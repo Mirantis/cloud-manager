@@ -11,3 +11,5 @@ data:
   PORT: "8080"
   GIN_MODE: "release"
   IAM_ORG_ROLE_NAME: "IAMManagerCrossAccountRole"
+  # SQLite user store (PVC mount in app-deployment.yaml)
+  DB_PATH: "/data/iam-manager.db"

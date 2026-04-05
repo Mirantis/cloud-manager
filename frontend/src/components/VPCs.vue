@@ -16,6 +16,7 @@
         </div>
         <div class="header-actions">
           <button 
+            v-if="canModify"
             @click="deleteAllEmptyVPCs" 
             class="btn btn-danger" 
             :disabled="loading || !filterAccount || emptyVPCsCount === 0"
@@ -197,7 +198,7 @@
               <td>
                 <div class="action-buttons">
                   <button
-                    v-if="!vpc.is_default && vpc.subnet_count === 0 && vpc.nat_gateway_count === 0"
+                    v-if="canModify && !vpc.is_default && vpc.subnet_count === 0 && vpc.nat_gateway_count === 0"
                     @click="deleteVPC(vpc)"
                     class="action-btn action-btn-delete"
                     :disabled="loading"
@@ -377,10 +378,12 @@ export default {
       }
     },
     async refreshData() {
-      try {
-        await axios.post('/api/cache/vpcs/invalidate')
-      } catch (error) {
-        console.warn('Failed to invalidate cache:', error)
+      if (this.canModify) {
+        try {
+          await axios.post('/api/cache/vpcs/invalidate')
+        } catch (error) {
+          console.warn('Failed to invalidate cache:', error)
+        }
       }
       await this.loadData()
     },

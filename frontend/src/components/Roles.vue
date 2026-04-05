@@ -170,7 +170,7 @@
                 <span v-else class="badge badge-secondary">Never</span>
               </td>
               <td>
-                <div class="action-buttons">
+                <div class="action-buttons" v-if="canModify">
                   <button
                     @click="deleteRole(role)"
                     class="action-btn action-btn-delete"
@@ -294,11 +294,12 @@ export default {
       }
     },
     async refreshData() {
-      // Invalidate cache before refreshing
-      try {
-        await axios.post('/api/cache/roles/invalidate')
-      } catch (error) {
-        console.warn('Failed to invalidate cache:', error)
+      if (this.canModify) {
+        try {
+          await axios.post('/api/cache/roles/invalidate')
+        } catch (error) {
+          console.warn('Failed to invalidate cache:', error)
+        }
       }
       await this.loadData()
     },

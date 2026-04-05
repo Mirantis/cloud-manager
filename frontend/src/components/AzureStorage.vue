@@ -144,7 +144,7 @@
               <td>{{ account.sku || 'N/A' }}</td>
               <td>{{ formatDate(account.created_time) }}</td>
               <td>
-                <div class="action-buttons">
+                <div class="action-buttons" v-if="canModify">
                   <button
                     @click="deleteAccount(account)"
                     class="btn btn-sm btn-danger"

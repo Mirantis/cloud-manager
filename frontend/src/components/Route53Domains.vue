@@ -238,10 +238,12 @@ export default {
       }
     },
     async refreshData() {
-      try {
-        await axios.post('/api/cache/route53-domains/invalidate')
-      } catch (e) {
-        console.warn('Failed to invalidate cache:', e)
+      if (this.canModify) {
+        try {
+          await axios.post('/api/cache/route53-domains/invalidate')
+        } catch (e) {
+          console.warn('Failed to invalidate cache:', e)
+        }
       }
       await this.loadData()
     },

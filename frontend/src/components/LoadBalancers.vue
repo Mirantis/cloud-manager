@@ -16,6 +16,7 @@
         </div>
         <div class="header-actions">
           <button 
+            v-if="canModify"
             @click="deleteAllUnusedLoadBalancers" 
             class="btn btn-danger" 
             :disabled="loading || !filterAccount || unusedLoadBalancersCount === 0"
@@ -27,6 +28,7 @@
             Delete All Unused ({{ unusedLoadBalancersCount }})
           </button>
           <button 
+            v-if="canModify"
             @click="deleteAllOldUnusedLoadBalancers" 
             class="btn btn-danger" 
             :disabled="loading || !filterAccount || oldUnusedLoadBalancersCount === 0"
@@ -232,7 +234,7 @@
               <td>
                 <div class="action-buttons">
                   <button
-                    v-if="lb.is_unused"
+                    v-if="canModify && lb.is_unused"
                     @click="deleteLoadBalancer(lb)"
                     class="action-btn action-btn-delete"
                     :disabled="loading"
@@ -467,11 +469,12 @@ export default {
       }
     },
     async refreshData() {
-      // Invalidate cache before refreshing
-      try {
-        await axios.post('/api/cache/load-balancers/invalidate')
-      } catch (error) {
-        console.warn('Failed to invalidate cache:', error)
+      if (this.canModify) {
+        try {
+          await axios.post('/api/cache/load-balancers/invalidate')
+        } catch (error) {
+          console.warn('Failed to invalidate cache:', error)
+        }
       }
       await this.loadData()
     },

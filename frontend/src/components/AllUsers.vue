@@ -105,6 +105,7 @@
             </option>
           </select>
           <button 
+            v-if="canModify"
             @click="deleteInactiveUsers" 
             class="btn btn-danger" 
             :disabled="!selectedAccount || deletingInactive"
@@ -176,7 +177,7 @@
                     </svg>
                     {{ user.password_set ? 'Yes' : 'No' }}
                   </span>
-                  <div class="password-actions" v-if="user.password_set">
+                  <div class="password-actions" v-if="user.password_set && canModify">
                     <button
                       @click.stop="rotateUserPassword(user.accountId, user.username)"
                       class="btn btn-primary btn-xs password-rotate-btn"
@@ -231,6 +232,7 @@
               <td>
                 <div class="user-actions">
                   <button 
+                    v-if="canModify"
                     @click.stop="deleteUser(user.accountId, user.username)"
                     class="btn btn-sm btn-danger"
                     :disabled="actionLoading[`${user.accountId}-${user.username}`]"
@@ -519,11 +521,12 @@ export default {
     },
     
     async refreshData() {
-      try {
-        // Clear cache before refreshing
-        await axios.post('/api/cache/clear')
-      } catch (error) {
-        console.warn('Failed to clear cache:', error)
+      if (this.canModify) {
+        try {
+          await axios.post('/api/cache/clear')
+        } catch (error) {
+          console.warn('Failed to clear cache:', error)
+        }
       }
       
       this.allUsers = []
@@ -541,8 +544,13 @@ export default {
       try {
         console.log('Refreshing data in background while showing cached data')
         
-        // Invalidate cache to get fresh data
-        await axios.post('/api/cache/clear')
+        if (this.canModify) {
+          try {
+            await axios.post('/api/cache/clear')
+          } catch (e) {
+            console.warn('Failed to clear cache:', e)
+          }
+        }
         
         // Load all data in parallel
         const [accountsResponse, usersResponse] = await Promise.all([

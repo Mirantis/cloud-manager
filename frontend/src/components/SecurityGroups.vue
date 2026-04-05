@@ -375,16 +375,16 @@ export default {
     },
 
     async refreshData() {
-      try {
-        // Invalidate security groups cache before refreshing
-        const response = await fetch('/api/cache/security-groups/invalidate', { method: 'POST' })
-        if (!response.ok) {
-          console.warn('Failed to invalidate cache')
+      if (this.canModify) {
+        try {
+          const response = await fetch('/api/cache/security-groups/invalidate', { method: 'POST', credentials: 'include' })
+          if (!response.ok) {
+            console.warn('Failed to invalidate cache')
+          }
+        } catch (error) {
+          console.warn('Failed to invalidate security groups cache:', error)
         }
-      } catch (error) {
-        console.warn('Failed to invalidate security groups cache:', error)
       }
-
       await this.loadSecurityGroups()
     },
     sortBy(field) {

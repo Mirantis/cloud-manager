@@ -16,6 +16,7 @@
         </div>
         <div class="header-actions">
           <button 
+            v-if="canModify"
             @click="deleteAllOldNATGateways" 
             class="btn btn-danger" 
             :disabled="loading || !filterAccount || oldNATGatewaysCount === 0"
@@ -196,6 +197,7 @@
               <td>
                 <div class="action-buttons">
                   <button
+                    v-if="canModify"
                     @click="deleteNATGateway(nat)"
                     class="action-btn action-btn-delete"
                     :disabled="loading || nat.state === 'deleting'"
@@ -393,10 +395,12 @@ export default {
       }
     },
     async refreshData() {
-      try {
-        await axios.post('/api/cache/nat-gateways/invalidate')
-      } catch (error) {
-        console.warn('Failed to invalidate cache:', error)
+      if (this.canModify) {
+        try {
+          await axios.post('/api/cache/nat-gateways/invalidate')
+        } catch (error) {
+          console.warn('Failed to invalidate cache:', error)
+        }
       }
       await this.loadData()
     },

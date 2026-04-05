@@ -17,7 +17,7 @@
           </svg>
           Refresh
         </button>
-        <button @click="deleteUser" class="btn btn-danger" :disabled="deletingUser">
+        <button v-if="canModify" @click="deleteUser" class="btn btn-danger" :disabled="deletingUser">
           <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
             <path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/>
           </svg>
@@ -51,7 +51,7 @@
                 </svg>
                 {{ user?.password_set ? 'Password Set' : 'No Password' }}
               </span>
-              <div class="password-actions">
+              <div class="password-actions" v-if="canModify">
                 <button
                   @click="rotateUserPassword"
                   class="btn btn-primary btn-xs"
@@ -146,7 +146,7 @@
               </svg>
               Export JSON
             </button>
-            <button @click="createAccessKey" class="btn btn-primary" :disabled="creatingKey">
+            <button v-if="canModify" @click="createAccessKey" class="btn btn-primary" :disabled="creatingKey">
               <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/>
               </svg>
@@ -222,7 +222,7 @@
                     </div>
                   </div>
                 </div>
-                <div class="key-actions">
+                <div class="key-actions" v-if="canModify">
                   <button @click="rotateKey(key.access_key_id)" class="btn btn-warning btn-sm">
                     <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
@@ -379,11 +379,12 @@ export default {
       }
     },
     async refreshUser() {
-      try {
-        // Invalidate cache for this user before refreshing
-        await axios.post(`/api/cache/accounts/${this.accountId}/users/${this.username}/invalidate`)
-      } catch (error) {
-        console.warn('Failed to invalidate user cache:', error)
+      if (this.canModify) {
+        try {
+          await axios.post(`/api/cache/accounts/${this.accountId}/users/${this.username}/invalidate`)
+        } catch (error) {
+          console.warn('Failed to invalidate user cache:', error)
+        }
       }
       
       await this.loadUser()

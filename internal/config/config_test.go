@@ -17,6 +17,12 @@ func TestLoadConfig(t *testing.T) {
 	assert.Equal(t, "8080", cfg.Port)
 	assert.Equal(t, "us-east-1", cfg.AWSRegion)
 	assert.Equal(t, "IAMManagerCrossAccountRole", cfg.RoleName)
+	assert.Equal(t, "./iam-manager.db", cfg.DBPath)
+
+	os.Setenv("DB_PATH", "/data/app.db")
+	cfg = LoadConfig()
+	assert.Equal(t, "/data/app.db", cfg.DBPath)
+	os.Unsetenv("DB_PATH")
 
 	// Test custom values
 	os.Setenv("PORT", "9000")

@@ -21,7 +21,7 @@
         </div>
         <div class="header-actions">
           <button 
-            v-if="filterAccount" 
+            v-if="filterAccount && canModify" 
             @click="deleteOldSnapshots" 
             class="btn btn-danger" 
             :disabled="loading || deletingOldSnapshots || oldSnapshotsCount === 0"
@@ -197,6 +197,7 @@
               </td>
               <td>
                 <button 
+                  v-if="canModify"
                   @click="deleteSnapshot(snapshot)"
                   class="btn btn-sm btn-danger"
                   :disabled="actionLoading[snapshot.snapshot_id]"

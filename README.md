@@ -1,6 +1,6 @@
 # Cloud Manager
 
-A comprehensive web application for managing cloud resources across AWS and Azure. Features multi-cloud resource management, automated deployments, cross-account role management, and a modern web interface. Built with Go backend and Vue.js frontend with Docker support.
+A comprehensive web application for managing cloud resources across AWS and Azure. Features multi-cloud resource management, automated deployments, cross-account role management, and a modern web interface. Built with Go backend and Vue.js frontend with Podman/OCI image support.
 
 ## ✨ Features
 
@@ -24,7 +24,7 @@ A comprehensive web application for managing cloud resources across AWS and Azur
 
 - **Backend**: Go 1.21+ with Gin framework and AWS SDK v2
 - **Frontend**: Vue.js 3 with Vite, compiled and served by Go (no Node.js runtime dependency)
-- **Deployment**: Docker Compose for easy deployment
+- **Deployment**: Podman Compose for easy local deployment; production image `ghcr.io/mirantis/cloud-manager`
 - **Authentication**: AWS IAM roles for cross-account access
 - **Security**: External ID validation and proper credential management
 
@@ -47,7 +47,7 @@ A comprehensive web application for managing cloud resources across AWS and Azur
    
    **Note**: SSO permissions must be attached directly to the IAM user in the master account (not just the cross-account role). See [SSO Setup](#sso-setup) section below.
 3. **Target account roles** (`IAMManagerCrossAccountRole`) **OR** use our automated StackSet deployment
-4. **Docker and Docker Compose** (for containerized deployment)
+4. **Podman** (and **Podman Compose**, for containerized local deployment)
 5. **Go 1.21+** (for CLI and local development)
 
 ## 🚀 Quick Start
@@ -58,7 +58,7 @@ Use our modern Go CLI with Makefile targets for the best experience:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/rusik69/aws-iam-manager.git
+git clone https://github.com/Mirantis/aws-iam-manager.git
 cd aws-iam-manager
 
 # 2. Check AWS configuration
@@ -86,20 +86,45 @@ make dev
 
 Access the application at `http://localhost:8080`
 
-### Option 2: Manual Docker Setup
+### Option 2: Manual Podman setup
 
 ```bash
 # 1. Clone and configure
-git clone https://github.com/rusik69/aws-iam-manager.git
+git clone https://github.com/Mirantis/aws-iam-manager.git
 cd aws-iam-manager
 
 # 2. Configure environment
 cp .env.example .env
 # Edit .env with your AWS credentials
 
-# 3. Build and run
-docker-compose up --build
+# 3. Build and run (requires a compose file, or use make podman-run after make podman-build)
+podman compose up --build
 ```
+
+### Kubernetes (shared ingress, e.g. Mirantis)
+
+The pod serves HTTP on **8080**; **nginx ingress** exposes **80/443** on the cluster load balancer. Other applications can keep using port 80 on the same ingress as long as they use a **different hostname**; this app’s Ingress only matches the hostname you pass as **DOMAIN**.
+
+`make deploy` uses **SSH/SCP** to the machine where you run `kubectl` (`HOST` + optional `USER`). That can be a **bare IP** (e.g. control plane or jump host).
+
+```bash
+# Typical: SSH to ubuntu@172.19.112.251, public site on a DNS name (TLS + Ingress):
+make deploy HOST=172.19.112.251 USER=ubuntu DOMAIN=iammanager.it.eu-cloud.mirantis.net
+
+# Equivalent SSH target in one variable (no separate USER=):
+make deploy HOST=ubuntu@172.19.112.251 DOMAIN=iammanager.it.eu-cloud.mirantis.net
+
+# Other bastions (hostname instead of IP):
+make deploy HOST=your-bastion.example.com DOMAIN=iammanager.it.eu-cloud.mirantis.net USER=ubuntu
+```
+
+Requirements: **passwordless SSH** or an **SSH agent** (for repeated `scp`/`ssh`), and the SSH target must have **`kubectl`** on disk and a working **kubeconfig** (`kubectl get nodes` succeeds). Non-interactive SSH often has a minimal `PATH`; the Makefile adds `/usr/local/bin` and `/snap/bin`. If you still see `kubectl: command not found`, install kubectl on that host or run deploy with an explicit binary, e.g. `KUBECTL=/snap/bin/kubectl make deploy HOST=...`.
+
+Create a DNS **A** (or **AAAA**) record for **DOMAIN** pointing at the ingress controller’s external address (often the same as your existing app). TLS and HTTP-01 challenges are documented in [k8s/README-SSL.md](k8s/README-SSL.md). Application users are stored in SQLite on a **PersistentVolumeClaim** (`/data/iam-manager.db` via `k8s/configmap.yaml`).
+
+On **k0s / bare metal**, if the site shows **connection refused** on `:443`, install **ingress-nginx** and use **hostNetwork** so the node listens on 80/443:  
+`make install-ingress-nginx HOST=… USER=ubuntu INGRESS_HOSTNETWORK=1`  
+(then point DNS at that node’s IP). See **“Connection refused”** in [k8s/README-SSL.md](k8s/README-SSL.md).
 
 ## ⚙️ Configuration
 
@@ -130,7 +155,15 @@ AZURE_SUBSCRIPTION_ID=your_subscription_id_here
 
 # Application settings
 PORT=8080
+
+# Web UI authentication (SQLite user store; persistent across restarts)
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-me-in-production
+# Optional: path to SQLite file (default ./iam-manager.db). Mount a volume in Podman/K8s for persistence.
+DB_PATH=./iam-manager.db
 ```
+
+Roles: **admin** (user management + all actions), **editor** (modify AWS/Azure resources), **viewer** (read-only). Admins create additional users via **Admin → User Management** in the UI (`/admin/users`).
 
 ### Azure AD Setup (Optional)
 
@@ -352,7 +385,7 @@ To enable Azure VM and Storage Account management:
 - `make build-frontend` - Build Vue.js frontend
 - `make build-backend` - Build Go backend server
 - `make build-cli` - Build Go CLI application
-- `make dev` - Run Docker development environment
+- `make dev` - Build with Podman and deploy to local Kubernetes
 
 ### AWS IAM Management
 - `make deploy-user` - Deploy IAM user and resources
@@ -513,7 +546,7 @@ make delete-stackset
 - Go 1.21+
 - Node.js 18+ (for frontend development)
 - AWS CLI configured
-- Docker & Docker Compose
+- Podman (and Podman Compose if you use compose workflows)
 
 ### Backend Development
 ```bash
@@ -530,7 +563,7 @@ make dev-frontend
 ### Full Development Environment
 ```bash
 make dev
-# Builds everything and runs with Docker Compose
+# Builds the image with Podman and runs in local Kubernetes (or use make dev-compose with Podman Compose)
 ```
 
 ### Testing
@@ -585,12 +618,13 @@ make logs
 
 **Container Won't Start**
 ```bash
-# Check container logs
-docker-compose logs cloud-manager
+# Check container logs (compose) or Podman logs
+podman compose logs cloud-manager
+# or: podman logs cloud-manager
 
-# Rebuild containers
-make clean
-make rebuild
+# Rebuild image and rerun
+make podman-build
+make podman-run
 ```
 
 **Azure Features Not Available**
@@ -667,8 +701,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆘 Support
 
-- **Issues**: [GitHub Issues](https://github.com/rusik69/aws-iam-manager/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/rusik69/aws-iam-manager/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Mirantis/aws-iam-manager/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Mirantis/aws-iam-manager/discussions)
 - **Documentation**: This README and inline code documentation
 
 ---

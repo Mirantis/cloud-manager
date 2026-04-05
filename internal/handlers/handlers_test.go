@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/rusik69/aws-iam-manager/internal/config"
+	"github.com/rusik69/aws-iam-manager/internal/db"
 	"github.com/rusik69/aws-iam-manager/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Mock AWS service for testing
@@ -292,12 +295,17 @@ func (m *MockAWSService) DeleteSecurityGroup(accountID, region, groupID string) 
 	return nil
 }
 
-func setupRouter() *gin.Engine {
+func setupRouter(t *testing.T) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
+	dir := t.TempDir()
+	appDB, err := db.Open(filepath.Join(dir, "test.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = appDB.Close() })
+
 	mockService := &MockAWSService{}
-	handler := NewHandler(mockService, config.Config{})
+	handler := NewHandler(mockService, config.Config{}, appDB)
 
 	api := r.Group("/api")
 	{
@@ -317,7 +325,7 @@ func setupRouter() *gin.Engine {
 }
 
 func TestListAccounts(t *testing.T) {
-	router := setupRouter()
+	router := setupRouter(t)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/accounts", nil)
@@ -333,7 +341,7 @@ func TestListAccounts(t *testing.T) {
 }
 
 func TestListUsers(t *testing.T) {
-	router := setupRouter()
+	router := setupRouter(t)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/accounts/123456789012/users", nil)
@@ -351,7 +359,7 @@ func TestListUsers(t *testing.T) {
 }
 
 func TestGetUser(t *testing.T) {
-	router := setupRouter()
+	router := setupRouter(t)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/accounts/123456789012/users/testuser1", nil)
@@ -367,7 +375,7 @@ func TestGetUser(t *testing.T) {
 }
 
 func TestCreateAccessKey(t *testing.T) {
-	router := setupRouter()
+	router := setupRouter(t)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/accounts/123456789012/users/testuser1/keys", nil)
@@ -384,7 +392,7 @@ func TestCreateAccessKey(t *testing.T) {
 }
 
 func TestDeleteAccessKey(t *testing.T) {
-	router := setupRouter()
+	router := setupRouter(t)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("DELETE", "/api/accounts/123456789012/users/testuser1/keys/AKIAIOSFODNN7EXAMPLE", nil)
@@ -399,7 +407,7 @@ func TestDeleteAccessKey(t *testing.T) {
 }
 
 func TestRotateAccessKey(t *testing.T) {
-	router := setupRouter()
+	router := setupRouter(t)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("PUT", "/api/accounts/123456789012/users/testuser1/keys/AKIAIOSFODNN7EXAMPLE/rotate", nil)
@@ -416,7 +424,7 @@ func TestRotateAccessKey(t *testing.T) {
 }
 
 func TestDeleteUser(t *testing.T) {
-	router := setupRouter()
+	router := setupRouter(t)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("DELETE", "/api/accounts/123456789012/users/testuser1", nil)
@@ -431,7 +439,7 @@ func TestDeleteUser(t *testing.T) {
 }
 
 func TestListPublicIPs(t *testing.T) {
-	router := setupRouter()
+	router := setupRouter(t)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/public-ips", nil)
@@ -452,7 +460,7 @@ func TestListPublicIPs(t *testing.T) {
 }
 
 func TestListSecurityGroups(t *testing.T) {
-	router := setupRouter()
+	router := setupRouter(t)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/security-groups", nil)
@@ -502,8 +510,6 @@ func TestListSecurityGroups(t *testing.T) {
 }
 
 func TestDeleteSecurityGroup(t *testing.T) {
-	router := setupRouter()
-
 	tests := []struct {
 		name           string
 		accountID      string
@@ -556,6 +562,7 @@ func TestDeleteSecurityGroup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			router := setupRouter(t)
 			url := fmt.Sprintf("/api/accounts/%s/regions/%s/security-groups/%s", tt.accountID, tt.region, tt.groupID)
 			w := httptest.NewRecorder()
 			req, _ := http.NewRequest("DELETE", url, nil)

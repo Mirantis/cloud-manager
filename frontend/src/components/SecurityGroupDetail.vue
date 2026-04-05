@@ -134,7 +134,7 @@
           {{ loading ? 'Refreshing...' : 'Refresh' }}
         </button>
         <button
-          v-if="!securityGroup.is_default"
+          v-if="canModify && !securityGroup.is_default"
           @click="deleteSecurityGroup"
           class="btn btn-danger"
           :disabled="loading"
@@ -190,15 +190,16 @@ export default {
     },
 
     async refreshSecurityGroup() {
-      try {
-        await fetch(`/api/cache/accounts/${this.accountId}/security-groups/invalidate`, { method: 'POST' })
-      } catch (error) {
-        console.warn('Failed to invalidate account security groups cache:', error)
-        // Fallback to invalidating all security groups cache
+      if (this.canModify) {
         try {
-          await fetch('/api/cache/security-groups/invalidate', { method: 'POST' })
-        } catch (fallbackError) {
-          console.warn('Failed to invalidate fallback cache:', fallbackError)
+          await fetch(`/api/cache/accounts/${this.accountId}/security-groups/invalidate`, { method: 'POST' })
+        } catch (error) {
+          console.warn('Failed to invalidate account security groups cache:', error)
+          try {
+            await fetch('/api/cache/security-groups/invalidate', { method: 'POST' })
+          } catch (fallbackError) {
+            console.warn('Failed to invalidate fallback cache:', fallbackError)
+          }
         }
       }
       await this.loadSecurityGroup()

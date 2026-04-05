@@ -14,6 +14,7 @@ import (
 // Session represents an authenticated session
 type Session struct {
 	Username  string
+	Role      string
 	ExpiresAt time.Time
 }
 
@@ -51,11 +52,12 @@ func GenerateSessionID() string {
 }
 
 // SetSession creates a new session
-func (s *SessionStore) SetSession(sessionID string, username string) {
+func (s *SessionStore) SetSession(sessionID, username, role string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessions[sessionID] = &Session{
 		Username:  username,
+		Role:      role,
 		ExpiresAt: time.Now().Add(24 * time.Hour), // 24 hour expiration
 	}
 }
@@ -93,6 +95,13 @@ func (s *SessionStore) Cleanup() {
 	}
 }
 
+// ClearSessionsForTest drops all sessions (used by integration tests in other packages).
+func ClearSessionsForTest() {
+	globalSessionStore.mu.Lock()
+	defer globalSessionStore.mu.Unlock()
+	globalSessionStore.sessions = make(map[string]*Session)
+}
+
 // AuthMiddleware handles session-based authentication
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -127,10 +136,11 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		// Store user information in context
 		c.Set("username", session.Username)
+		c.Set("role", session.Role)
 		c.Set("authenticated", true)
 
-		log.Printf("[INFO] Authenticated user: %s accessing: %s %s",
-			session.Username, c.Request.Method, path)
+		log.Printf("[INFO] Authenticated user: %s (%s) accessing: %s %s",
+			session.Username, session.Role, c.Request.Method, path)
 
 		c.Next()
 	}
@@ -166,6 +176,57 @@ func GetCurrentUser(c *gin.Context) (string, bool) {
 	}
 	usernameStr, ok := username.(string)
 	return usernameStr, ok
+}
+
+// GetCurrentRole returns the role from context (admin, editor, viewer).
+func GetCurrentRole(c *gin.Context) (string, bool) {
+	role, exists := c.Get("role")
+	if !exists {
+		return "", false
+	}
+	s, ok := role.(string)
+	return s, ok
+}
+
+func canWrite(role string) bool {
+	return role == "admin" || role == "editor"
+}
+
+// WriteAccessMiddleware allows GET/HEAD/OPTIONS for all authenticated users; other methods require editor or admin.
+func WriteAccessMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		m := c.Request.Method
+		if m == http.MethodGet || m == http.MethodHead || m == http.MethodOptions {
+			c.Next()
+			return
+		}
+		role, _ := GetCurrentRole(c)
+		if !canWrite(role) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":   "Forbidden",
+				"message": "Your role does not allow modifying resources",
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// AdminMiddleware requires role admin.
+func AdminMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, _ := GetCurrentRole(c)
+		if role != "admin" {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":   "Forbidden",
+				"message": "Administrator access required",
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
 }
 
 // IsAuthenticated checks if the user is authenticated

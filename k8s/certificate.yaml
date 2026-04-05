@@ -17,7 +17,7 @@ spec:
   # List of DNS names for the certificate
   dnsNames:
   - DOMAIN_PLACEHOLDER
-  # Note: Domain will be replaced by HOST variable during deployment
+  # Note: DOMAIN_PLACEHOLDER is replaced at deploy time (make deploy DOMAIN=... or HOST=...)
 
   # Certificate renewal settings
   duration: 2160h # 90 days
