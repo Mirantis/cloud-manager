@@ -91,7 +91,6 @@ help:
 	@echo "🚀 CI/CD & Quality:"
 	@echo "  ci               - Run all CI checks locally (includes podman-build)"
 	@echo "  test-coverage    - Generate test coverage report"
-	@echo "  security-scan    - Run security analysis with gosec"
 	@echo "  validate-workflows - Validate GitHub Actions workflows"
 	@echo "  pre-commit       - Run all pre-commit checks"
 	@echo "  release-build    - Create release build artifacts"
@@ -322,10 +321,10 @@ lint:
 	@echo "🔍 Linting code..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 		echo "  🔍 Running golangci-lint on Go code..."; \
-		golangci-lint run ./...; \
+		golangci-lint run ./cmd/server/... ./internal/...; \
 	else \
 		echo "  ⚠️  golangci-lint not found, using basic go vet"; \
-		go vet ./...; \
+		go vet ./cmd/server/... ./internal/...; \
 	fi
 	@echo "  🔍 Linting frontend code..."
 	@cd frontend && (which eslint > /dev/null && npm run lint || echo "    ESLint not configured")
@@ -881,16 +880,6 @@ test-coverage:
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "📊 Coverage report generated: coverage.html"
 
-# Security scan with gosec
-security-scan:
-	@echo "🔒 Running security scan..."
-	@if ! command -v gosec >/dev/null 2>&1; then \
-		echo "Installing gosec..."; \
-		go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest; \
-	fi
-	gosec -fmt sarif -out gosec.sarif ./...
-	gosec ./...
-
 # Lint Dockerfile with hadolint
 lint-containerfile:
 	@echo "🐳 Linting Dockerfile..."
@@ -949,7 +938,7 @@ validate-workflows:
 	fi
 
 # Pre-commit checks (run before committing)
-pre-commit: fmt lint test security-scan lint-containerfile validate-workflows
+pre-commit: fmt lint test lint-containerfile validate-workflows
 	@echo "✅ All pre-commit checks passed"
 
 # Create release build

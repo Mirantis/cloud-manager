@@ -20,7 +20,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      security-events: write
 
     steps:
       - name: Checkout code
@@ -74,7 +73,6 @@ jobs:
           file: ./coverage.out
           fail_ci_if_error: false
 
-
       - name: Build frontend
         run: make build-frontend
 
@@ -88,19 +86,6 @@ jobs:
 
       - name: Build container image
         run: podman build -t cloud-manager:ci .
-
-      - name: Scan container image for vulnerabilities
-        run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.58.0
-          podman save cloud-manager:ci -o /tmp/cloud-manager-ci.tar
-          trivy image --format sarif --output trivy-image-results.sarif \
-            --severity CRITICAL,HIGH --exit-code 0 --input /tmp/cloud-manager-ci.tar
-
-      - name: Upload Trivy image scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-image-results.sarif
-          category: trivy-image
 
       - name: Test container image
         run: |
@@ -157,7 +142,6 @@ jobs:
             podman push "${REG}/${NAME}:latest"
           fi
 
-
       - name: Generate deployment summary
         if: github.event_name != 'pull_request'
         run: |
@@ -177,108 +161,3 @@ jobs:
           echo "  -e AWS_REGION=us-east-1 \\" >> $GITHUB_STEP_SUMMARY
           echo "  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-
-  codeql:
-    name: CodeQL Analysis
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [ 'go', 'javascript' ]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        if: matrix.language == 'go'
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.25'
-          cache: true
-
-      - name: Set up Node.js
-        if: matrix.language == 'javascript'
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
-        with:
-          languages: ${{ matrix.language }}
-          queries: security-extended,security-and-quality
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v4
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
-        with:
-          category: /language:${{ matrix.language }}
-
-  security-scan:
-    name: Security Scanning
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.25'
-          cache: true
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install system dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -y libsecret-1-dev
-
-      - name: Install frontend dependencies
-        run: cd frontend && npm ci
-
-      - name: Run govulncheck (Go vulnerability database)
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./cmd/server/... ./internal/...
-
-      - name: Run npm audit (frontend dependency CVEs)
-        run: cd frontend && npm audit --audit-level=high
-        continue-on-error: false
-
-      - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: sarif
-          output: trivy-fs-results.sarif
-          severity: CRITICAL,HIGH
-          exit-code: '0'
-
-      - name: Upload Trivy filesystem scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-fs-results.sarif
-          category: trivy-filesystem

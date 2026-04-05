@@ -47,7 +47,9 @@ func init() {
 // GenerateSessionID generates a random session ID
 func GenerateSessionID() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand: " + err.Error())
+	}
 	return base64.URLEncoding.EncodeToString(b)
 }
 

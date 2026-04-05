@@ -766,7 +766,8 @@ func (s *SSOService) getPermissionSetName(arn string) string {
 }
 
 func (s *SSOService) getPrincipalName(principalID, principalType string) string {
-	if principalType == "USER" {
+	switch principalType {
+	case "USER":
 		user, err := s.GetSSOUser(principalID)
 		if err == nil {
 			if user.DisplayName != "" {
@@ -774,7 +775,7 @@ func (s *SSOService) getPrincipalName(principalID, principalType string) string 
 			}
 			return user.UserName
 		}
-	} else if principalType == "GROUP" {
+	case "GROUP":
 		group, err := s.GetSSOGroup(principalID)
 		if err == nil {
 			return group.DisplayName

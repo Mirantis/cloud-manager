@@ -45,7 +45,7 @@ func NewAzureRMService() (*AzureRMService, error) {
 	clientSecret := os.Getenv("AZURE_CLIENT_SECRET")
 
 	if tenantID == "" || clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("Azure credentials not configured. Set AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET environment variables")
+		return nil, fmt.Errorf("azure credentials not configured: set AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET")
 	}
 
 	// Create credential
@@ -148,7 +148,7 @@ func (s *AzureRMService) ListSubscriptions(ctx context.Context) ([]models.AzureS
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -190,7 +190,7 @@ func (s *AzureRMService) ListSubscriptions(ctx context.Context) ([]models.AzureS
 
 	if jsonResponse.Error != nil {
 		fmt.Printf("[ERROR] Azure API returned error: Code=%s, Message=%s\n", jsonResponse.Error.Code, jsonResponse.Error.Message)
-		return nil, fmt.Errorf("Azure API error: %s - %s", jsonResponse.Error.Code, jsonResponse.Error.Message)
+		return nil, fmt.Errorf("azure API error: %s - %s", jsonResponse.Error.Code, jsonResponse.Error.Message)
 	}
 
 	fmt.Printf("[INFO] Parsed %d subscription(s) from first page\n", len(jsonResponse.Value))
@@ -229,9 +229,8 @@ func (s *AzureRMService) ListSubscriptions(ctx context.Context) ([]models.AzureS
 			fmt.Printf("[WARNING] Failed to execute request for next page: %v\n", err)
 			break
 		}
-
 		bodyBytes, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			fmt.Printf("[WARNING] Failed to read response for next page: %v\n", err)
 			break

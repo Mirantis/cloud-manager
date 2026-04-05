@@ -36,12 +36,12 @@ func NewServer(cfg config.Config) (*Server, error) {
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(cfg.AdminPassword), bcrypt.DefaultCost)
 	if err != nil {
-		appDB.Close()
+		_ = appDB.Close()
 		return nil, fmt.Errorf("hash admin password: %w", err)
 	}
-	if err := appDB.UpsertUser(cfg.AdminUsername, string(hash), "admin"); err != nil {
-		appDB.Close()
-		return nil, fmt.Errorf("seed admin user: %w", err)
+	if upsertErr := appDB.UpsertUser(cfg.AdminUsername, string(hash), "admin"); upsertErr != nil {
+		_ = appDB.Close()
+		return nil, fmt.Errorf("seed admin user: %w", upsertErr)
 	}
 	log.Printf("[INFO] Application users database: %s", cfg.DBPath)
 

@@ -248,7 +248,7 @@ func (s *AWSService) getELBv2PublicIPs(sess *session.Session, account models.Acc
 		if lb.Scheme != nil && *lb.Scheme == "internet-facing" && lb.DNSName != nil {
 			lbType := "ALB"
 			if lb.Type != nil {
-				lbType = string(*lb.Type)
+				lbType = *lb.Type
 			}
 
 			// For NLB with static IPs, try to get them directly
@@ -265,7 +265,7 @@ func (s *AWSService) getELBv2PublicIPs(sess *session.Session, account models.Acc
 									ResourceType: "NLB",
 									ResourceID:   *lb.LoadBalancerArn,
 									ResourceName: *lb.LoadBalancerName,
-									State:        string(*lb.State.Code),
+									State:        *lb.State.Code,
 								})
 							}
 						}
@@ -290,7 +290,7 @@ func (s *AWSService) getELBv2PublicIPs(sess *session.Session, account models.Acc
 						ResourceType: lbType,
 						ResourceID:   *lb.LoadBalancerArn,
 						ResourceName: *lb.LoadBalancerName,
-						State:        string(*lb.State.Code),
+						State:        *lb.State.Code,
 					})
 				}
 			}
@@ -381,7 +381,7 @@ func (s *AWSService) getNATPublicIPs(sess *session.Session, account models.Accou
 					ResourceType: "NAT",
 					ResourceID:   *nat.NatGatewayId,
 					ResourceName: natName,
-					State:        string(*nat.State),
+					State:        *nat.State,
 				})
 			}
 		}

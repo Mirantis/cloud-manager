@@ -26,9 +26,9 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := conn.Ping(); err != nil {
-		conn.Close()
-		return nil, err
+	if pingErr := conn.Ping(); pingErr != nil {
+		_ = conn.Close()
+		return nil, pingErr
 	}
 	_, err = conn.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
@@ -39,7 +39,7 @@ func Open(path string) (*DB, error) {
 		)
 	`)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	return &DB{conn: conn}, nil
@@ -111,7 +111,7 @@ func (d *DB) ListUsers() ([]AppUser, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var users []AppUser
 	for rows.Next() {
 		var u AppUser

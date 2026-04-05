@@ -36,7 +36,7 @@ func NewAzureService() (*AzureService, error) {
 	clientSecret := os.Getenv("AZURE_CLIENT_SECRET")
 
 	if tenantID == "" || clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("Azure credentials not configured. Set AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET environment variables")
+		return nil, fmt.Errorf("azure credentials not configured: set AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET")
 	}
 
 	// Create credential
@@ -80,8 +80,8 @@ func (s *AzureService) ListEnterpriseApplications(ctx context.Context) ([]models
 		},
 	}
 
-	// Fetch all applications using pagination
-	for {
+	// Fetch applications: first page via SDK, then follow @odata.nextLink with HTTP.
+	for once := true; once; once = false {
 		appsResult, err := s.client.Applications().Get(ctx, appsRequestConfig)
 		if err != nil {
 			// If we can't get applications, continue without creation dates
@@ -124,12 +124,17 @@ func (s *AzureService) ListEnterpriseApplications(ctx context.Context) ([]models
 			appCreationDates[appId] = createdDateTime
 		}
 
-		// Check if there's another page
-		if nextNextLink == nil || *nextNextLink == "" {
-			break
+		for nextPtr := nextNextLink; nextPtr != nil && *nextPtr != ""; {
+			nextPageAppDates, np, err := s.fetchApplicationsPageFromURL(ctx, *nextPtr)
+			if err != nil {
+				fmt.Printf("[WARNING] Failed to fetch next page of applications: %v\n", err)
+				break
+			}
+			for appId, createdDateTime := range nextPageAppDates {
+				appCreationDates[appId] = createdDateTime
+			}
+			nextPtr = np
 		}
-		nextLink = nextNextLink
-		continue
 	}
 
 	// Get all service principals (enterprise applications) with pagination
@@ -142,17 +147,17 @@ func (s *AzureService) ListEnterpriseApplications(ctx context.Context) ([]models
 		},
 	}
 
-	// Fetch all service principals using pagination
-	for {
+	// Fetch service principals: first page via SDK, then follow @odata.nextLink with HTTP.
+	for once := true; once; once = false {
 		result, err := s.client.ServicePrincipals().Get(ctx, requestConfig)
 		if err != nil {
 			// Provide more helpful error messages for common authentication issues
 			errMsg := err.Error()
 			if strings.Contains(errMsg, "AADSTS700016") || strings.Contains(errMsg, "not found in the directory") {
-				return nil, fmt.Errorf("Azure app registration not found in tenant. Verify that:\n1. The Client ID matches the Application (client) ID in Azure Portal\n2. The Tenant ID matches the Directory (tenant) ID\n3. The app registration exists in the correct tenant\n4. The app has been consented/admin consented\n\nOriginal error: %w", err)
+				return nil, fmt.Errorf("azure app registration not found in tenant. Verify that:\n1. The Client ID matches the Application (client) ID in Azure Portal\n2. The Tenant ID matches the Directory (tenant) ID\n3. The app registration exists in the correct tenant\n4. The app has been consented/admin consented\n\nOriginal error: %w", err)
 			}
 			if strings.Contains(errMsg, "unauthorized_client") || strings.Contains(errMsg, "AADSTS7000215") {
-				return nil, fmt.Errorf("Azure authentication failed. Verify that:\n1. The Client Secret is correct and not expired\n2. The app registration has the required API permissions\n3. Admin consent has been granted for the permissions\n\nOriginal error: %w", err)
+				return nil, fmt.Errorf("azure authentication failed. Verify that:\n1. The Client Secret is correct and not expired\n2. The app registration has the required API permissions\n3. Admin consent has been granted for the permissions\n\nOriginal error: %w", err)
 			}
 			return nil, fmt.Errorf("failed to list enterprise applications: %w", err)
 		}
@@ -210,12 +215,22 @@ func (s *AzureService) ListEnterpriseApplications(ctx context.Context) ([]models
 			apps = append(apps, sp)
 		}
 
-		// Check if there's another page
-		if nextNextLink == nil || *nextNextLink == "" {
-			break
+		for nextPtr := nextNextLink; nextPtr != nil && *nextPtr != ""; {
+			nextPageSPs, np, nextPageAppDates, err := s.fetchServicePrincipalsPageFromURL(ctx, *nextPtr)
+			if err != nil {
+				fmt.Printf("[WARNING] Failed to fetch next page of service principals: %v\n", err)
+				break
+			}
+			for appId, createdDateTime := range nextPageAppDates {
+				appCreationDates[appId] = createdDateTime
+			}
+			for _, sp := range nextPageSPs {
+				createdDateTime := appCreationDates[sp.AppID]
+				sp.CreatedDateTime = createdDateTime
+				apps = append(apps, sp)
+			}
+			nextPtr = np
 		}
-		nextLink = nextNextLink
-		continue
 	}
 
 	// Cache the result
@@ -367,7 +382,7 @@ func (s *AzureService) fetchApplicationsPageFromURL(ctx context.Context, url str
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -432,7 +447,7 @@ func (s *AzureService) fetchServicePrincipalsPageFromURL(ctx context.Context, ur
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

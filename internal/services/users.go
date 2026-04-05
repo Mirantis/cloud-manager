@@ -514,12 +514,11 @@ func (s *AWSService) DeleteUser(accountID, username string) error {
 		}
 	}
 
-	// Delete the login profile if it exists
-	_, err = iamClient.DeleteLoginProfile(&iam.DeleteLoginProfileInput{
+	// Delete the login profile if it exists (ignore error if missing)
+	_, _ = iamClient.DeleteLoginProfile(&iam.DeleteLoginProfileInput{
 		UserName: aws.String(username),
 	})
-	// Ignore error if login profile doesn't exist
-	
+
 	// Finally, delete the user
 	_, err = iamClient.DeleteUser(&iam.DeleteUserInput{
 		UserName: aws.String(username),
@@ -549,7 +548,7 @@ func (s *AWSService) DeleteUser(accountID, username string) error {
 		if allUsers, ok := cached.([]models.UserWithAccount); ok {
 			var updatedAllUsers []models.UserWithAccount
 			for _, user := range allUsers {
-				if !(user.AccountID == accountID && user.Username == username) {
+				if user.AccountID != accountID || user.Username != username {
 					updatedAllUsers = append(updatedAllUsers, user)
 				}
 			}
@@ -711,7 +710,6 @@ func (s *AWSService) DeleteInactiveUsers(accountID string) ([]string, []string, 
 		// Check password last used - if password was used recently, user is active
 		if user.PasswordSet && user.PasswordLastUsed != nil {
 			if user.PasswordLastUsed.After(sixMonthsAgo) {
-				isInactive = false
 				continue
 			}
 		}

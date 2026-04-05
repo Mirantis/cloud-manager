@@ -263,11 +263,11 @@ func (s *AWSService) getRoleDetails(iamClient *iam.IAM, role *iam.Role, accountI
 	if err == nil {
 		for _, policyName := range inlinePolicies.PolicyNames {
 			// Get policy document
-			policyResult, err := iamClient.GetRolePolicy(&iam.GetRolePolicyInput{
+			policyResult, policyErr := iamClient.GetRolePolicy(&iam.GetRolePolicyInput{
 				RoleName:   aws.String(roleName),
 				PolicyName: policyName,
 			})
-			if err == nil && policyResult.PolicyDocument != nil {
+			if policyErr == nil && policyResult.PolicyDocument != nil {
 				roleModel.InlinePolicies = append(roleModel.InlinePolicies, models.InlinePolicy{
 					PolicyName:     *policyName,
 					PolicyDocument: *policyResult.PolicyDocument,
