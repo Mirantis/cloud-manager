@@ -47,10 +47,17 @@ func (s *AWSService) generatePassword() string {
 }
 
 
-// getRegions gets all available AWS regions
+// getRegions gets all available AWS regions (excludes opt-in regions to avoid AuthFailure)
 func (s *AWSService) getRegions(sess *session.Session) ([]string, error) {
 	ec2Client := ec2.New(sess)
-	result, err := ec2Client.DescribeRegions(&ec2.DescribeRegionsInput{})
+	result, err := ec2Client.DescribeRegions(&ec2.DescribeRegionsInput{
+		Filters: []*ec2.Filter{
+			{
+				Name:   aws.String("opt-in-status"),
+				Values: []*string{aws.String("opt-in-not-required"), aws.String("opted-in")},
+			},
+		},
+	})
 	if err != nil {
 		return nil, err
 	}

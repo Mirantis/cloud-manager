@@ -3,6 +3,7 @@ package services
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -32,7 +33,11 @@ func NewAWSService(cfg config.Config) *AWSService {
 
 	// Create AWS config
 	awsConfig := &aws.Config{
-		Region: aws.String(region),
+		Region:     aws.String(region),
+		MaxRetries: aws.Int(1),
+		HTTPClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
 	}
 
 	// Only use static credentials if both access key and secret key are provided
@@ -89,6 +94,10 @@ func (s *AWSService) getSessionForAccount(accountID string) (*session.Session, e
 			*creds.SecretAccessKey,
 			*creds.SessionToken,
 		),
+		MaxRetries: aws.Int(1),
+		HTTPClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session with assumed role: %v", err)

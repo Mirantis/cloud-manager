@@ -1,6 +1,8 @@
 # SSL Certificate Setup with Let's Encrypt
 
-This setup automatically provisions SSL certificates using Let's Encrypt and cert-manager.
+**Note:** `make deploy` is **HTTP-only** and does **not** install cert-manager or apply `cert-manager.yaml`. Use this document when you want to add TLS manually.
+
+This optional flow provisions SSL certificates using Let's Encrypt and cert-manager.
 
 ## Prerequisites
 
@@ -18,9 +20,9 @@ kubectl wait --namespace ingress-nginx \
 
 ### 2. cert-manager
 
-**`make deploy` installs cert-manager automatically** if the `clusterissuers.cert-manager.io` CRD is missing (default release: `CERT_MANAGER_VERSION` in the Makefile, currently pinned to a recent v1.14.x). If cert-manager is already on the cluster, deploy only applies `k8s/cert-manager.yaml` (ClusterIssuers).
+Install cert-manager on the cluster (not done by `make deploy`):
 
-Manual install (optional):
+Manual install:
 
 ```bash
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.5/cert-manager.yaml
@@ -64,11 +66,12 @@ Usually **nothing is listening on :443** at the IP your DNS resolves to.
 
 ## SSL Certificate Process
 
-1. **Certificate Request**: The Certificate resource requests a certificate from Let's Encrypt
-2. **HTTP-01 Challenge**: cert-manager performs domain validation via HTTP-01 challenge
-3. **Certificate Issuance**: Let's Encrypt issues the certificate
-4. **Secret Creation**: Certificate is stored in `cloud-manager-tls` secret
-5. **Ingress Configuration**: Nginx ingress uses the certificate for SSL termination
+`make deploy` applies an **Ingress** with `cert-manager.io/cluster-issuer`; cert-manager’s **ingress-shim** creates the **Certificate** and writes **`cloud-manager-tls`**. (The file `k8s/certificate.yaml` is optional/manual only—not applied by deploy—to avoid duplicate Certificates fighting the same secret.)
+
+1. **Certificate**: Created by cert-manager from the Ingress `tls` section
+2. **HTTP-01 Challenge**: cert-manager serves the challenge (needs **port 80** to the ingress)
+3. **Let’s Encrypt** issues the cert → **Secret** `cloud-manager-tls`
+4. **Nginx** terminates TLS using that secret
 
 ## Verification
 
@@ -78,8 +81,8 @@ Check certificate status:
 # Check certificate status
 kubectl get certificates -n cloud-manager
 
-# Check certificate details
-kubectl describe certificate cloud-manager-cert -n cloud-manager
+# Check certificate details (name may be cloud-manager-tls-… from ingress-shim)
+kubectl describe certificate -n cloud-manager -l app.kubernetes.io/name=cloud-manager 2>/dev/null || kubectl describe certificate -n cloud-manager
 
 # Check certificate secret
 kubectl get secret cloud-manager-tls -n cloud-manager
@@ -113,7 +116,15 @@ kubectl describe certificate cloud-manager-cert -n cloud-manager
 kubectl get challenges,orders -n cloud-manager
 ```
 
-Fix ACME (DNS to this ingress, **port 80** open for HTTP-01, ClusterIssuer email/DNS01 settings) first; the real cert appears after the secret is populated.
+Fix ACME (DNS to this ingress, **port 80** open for HTTP-01, ClusterIssuer email) first. If you previously had **two** `Certificate` objects or a stuck **invalid** order, delete them and let cert-manager recreate from the Ingress:
+
+```bash
+kubectl delete certificate --all -n cloud-manager
+kubectl delete secret cloud-manager-tls -n cloud-manager --ignore-not-found
+kubectl delete challenge,order,certificaterequest -n cloud-manager --all --ignore-not-found
+```
+
+Then `make deploy ...` again (or only re-apply the Ingress). If Let’s Encrypt **rate-limited** you, deploy with **`CERT_ISSUER=letsencrypt-staging`** once, confirm staging cert works, then switch back to **`letsencrypt-prod`** after the limit window.
 
 ### Certificate Pending
 

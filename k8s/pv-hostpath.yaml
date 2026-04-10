@@ -1,0 +1,19 @@
+# Static PV for clusters with no default StorageClass (e.g. single-node k0s).
+# Creates /var/lib/cloud-manager-data on the node. Apply before pvc.yaml.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: cloud-manager-data-pv
+  labels:
+    app.kubernetes.io/name: cloud-manager
+    app.kubernetes.io/component: storage
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: cloud-manager-local
+  hostPath:
+    path: /var/lib/cloud-manager-data
+    type: DirectoryOrCreate

@@ -278,9 +278,16 @@ func (s *AWSService) getEC2InstancesForAccount(account models.Account) ([]models
 		return nil, fmt.Errorf("cannot access account %s: %w", account.ID, err)
 	}
 
-	// Get all regions
+	// Get all regions (exclude opt-in regions to avoid AuthFailure in disabled regions)
 	ec2Client := ec2.New(sess)
-	regionsResult, err := ec2Client.DescribeRegions(&ec2.DescribeRegionsInput{})
+	regionsResult, err := ec2Client.DescribeRegions(&ec2.DescribeRegionsInput{
+		Filters: []*ec2.Filter{
+			{
+				Name:   aws.String("opt-in-status"),
+				Values: []*string{aws.String("opt-in-not-required"), aws.String("opted-in")},
+			},
+		},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to describe regions: %v", err)
 	}

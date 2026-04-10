@@ -1,10 +1,13 @@
-.PHONY: build build-frontend build-backend build-cli dev dev-stop dev-logs dev-compose dev-compose-stop dev-cli dev-frontend dev-backend test fmt lint install check install-linter tidy deps preview clean-build ci pre-commit build-prod build-release release help deploy-user remove-user create-role remove-role deploy-stackset update-stackset status-stackset remove-stackset delete-stackset cli-status check-aws-config unset-variables unset-variables-exec deploy install-k0s k0s-deploy install-ingress-nginx validate-prod-env podman-build podman-build-ghcr podman-build-multiarch podman-build-multiarch-push podman-push-ghcr lint-containerfile podman-run debug-probe-cloudmanager
+.PHONY: build build-frontend build-backend build-cli dev dev-stop dev-logs dev-compose dev-compose-stop dev-cli dev-frontend dev-backend test fmt lint install check install-linter tidy deps preview clean-build ci pre-commit build-prod build-release release help deploy-user remove-user create-role remove-role deploy-stackset update-stackset status-stackset remove-stackset delete-stackset cli-status check-aws-config unset-variables unset-variables-exec deploy install-k0s k0s-deploy install-ingress-nginx validate-prod-env podman-build podman-build-ghcr podman-build-multiarch podman-build-multiarch-push podman-push-ghcr lint-containerfile podman-run debug-probe-cloudmanager diagnose-k8s logs
 
 # Remote kubectl for `make deploy` (non-interactive SSH often lacks /usr/local/bin and /snap/bin)
 KUBECTL ?= kubectl
-# Bundled cert-manager release URL (CRDs + controller); used when cluster lacks cert-manager
-CERT_MANAGER_VERSION ?= v1.14.5
-CERT_MANAGER_INSTALL_URL ?= https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
+# PVC: default hostpath for single-node k0s / no StorageClass. Use K8S_STORAGE=dynamic on EKS/GKE (default StorageClass).
+K8S_STORAGE ?= hostpath
+# Env file → remote k8s/.env → Secret app-secrets (AWS + app creds). Path relative to this Makefile unless absolute.
+MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+ENV_FILE ?= .env.prod
+DEPLOY_ENV_ABS := $(if $(filter /%,$(ENV_FILE)),$(ENV_FILE),$(MAKEFILE_DIR)/$(ENV_FILE))
 
 # ingress-nginx bare-metal (NodePort). Override tag to pin a release.
 INGRESS_NGINX_TAG ?= v1.11.2
@@ -14,6 +17,8 @@ INGRESS_HOSTNETWORK ?= 0
 
 # Default image for Kubernetes / GHCR (override for forks, e.g. GHCR_IMAGE=ghcr.io/yourorg/cloud-manager:latest)
 GHCR_IMAGE ?= ghcr.io/mirantis/cloud-manager:latest
+# Initial lines shown before follow (make logs HOST=... TAIL=200)
+TAIL ?= 100
 
 # Default target
 help:
@@ -29,9 +34,9 @@ help:
 	@echo "  build-release    - Multi-platform release binaries"
 	@echo ""
 	@echo "🚀 Development:"
-	@echo "  dev              - Build and deploy to local k8s with .env.prod"
-	@echo "  dev-stop         - Stop and remove local k8s deployment"
-	@echo "  dev-logs         - Show logs from local k8s deployment"
+	@echo "  dev              - Build frontend + run Go server locally (no containers; needs .env.prod)"
+	@echo "  dev-stop         - Remove legacy local k8s cloud-manager objects (optional cleanup)"
+	@echo "  dev-logs         - Stream logs from legacy local k8s deployment (kubectl)"
 	@echo "  dev-compose      - Run locally with podman compose"
 	@echo "  dev-compose-stop - Stop podman compose"
 	@echo "  dev-cli          - Run CLI in development mode"
@@ -66,14 +71,16 @@ help:
 	@echo "  remove-stackset  - Remove StackSet and all instances"
 	@echo "  delete-stackset  - Alias for remove-stackset"
 	@echo "  cli-status       - Show current deployment status"
-	@echo "  deploy HOST=ssh-target [DOMAIN=app.example.com] [USER=user] - Deploy to k8s via SSH (DOMAIN defaults to HOST)"
+	@echo "  deploy HOST=... [DOMAIN=...] [USER=...] [K8S_STORAGE=dynamic] - Deploy to k8s (default hostpath PV; use dynamic on cloud with StorageClass)"
 	@echo "                               Example: make deploy HOST=172.19.112.251 USER=ubuntu DOMAIN=iammanager.it.eu-cloud.mirantis.net"
 	@echo "                               If remote says kubectl not found: KUBECTL=/snap/bin/kubectl (or install kubectl on the SSH host)"
-	@echo "                               (automatically uses .env.prod if available)"
-	@echo "                               Includes Let's Encrypt SSL certificate setup"
+	@echo "                               Requires .env.prod next to this Makefile (ENV_FILE=path overrides)"
+	@echo "                               Ingress is HTTP-only (no cert-manager in deploy)"
 	@echo "  install-k0s HOST=ssh-target [USER=ubuntu] [K0S_VERSION=v1.29.2+k0s.0] - Install k0s + kubectl on remote (sudo -n; alias: k0s-deploy)"
 	@echo "  install-ingress-nginx HOST=ssh-target [USER=ubuntu] [INGRESS_HOSTNETWORK=1] - Install ingress-nginx (bare metal); use HOSTNETWORK=1 for :443 on node IP"
 	@echo "  debug-probe-cloudmanager [PROBE_URL=...] - HTTPS probe; appends NDJSON to DEBUG_LOG_PATH (default nanoclaw .cursor/debug-3cd321.log)"
+	@echo "  diagnose-k8s HOST=... [USER=] - SSH + kubectl: PVC, pods, endpoints, ingress, app logs"
+	@echo "  logs HOST=... [USER=] [TAIL=100] - Stream app logs from remote kubectl (-f; same host as deploy)"
 	@echo ""
 	@echo "🧹 Cleanup:"
 	@echo "  clean            - Clean everything"
@@ -82,7 +89,7 @@ help:
 	@echo "🔧 Setup & Configuration:"
 	@echo "  check-aws-config - Verify AWS credentials and configuration"
 	@echo "  unset-variables  - Show command to unset AWS credential environment variables"
-	@echo "  validate-prod-env - Validate production environment file (.env.prod)"
+	@echo "  validate-prod-env - Validate ENV_FILE (.env.prod by default, same path rules as deploy)"
 	@echo ""
 	@echo "☁️  Azure AD (Optional):"
 	@echo "  Azure support requires AZURE_TENANT_ID, AZURE_CLIENT_ID, and"
@@ -163,68 +170,39 @@ build-release:
 # DEVELOPMENT TARGETS
 # ============================================================================
 
-# Development mode - builds and deploys to local k8s cluster with .env.prod env vars
-# For Podman, minikube (with eval $(minikube podman-env)), or kind (with kind load)
+# Local dev: production frontend build + Go server (cwd = repo root; serves ./frontend/dist). No Kubernetes or Podman.
 dev:
-	@echo "🚀 Starting development environment in Kubernetes..."
-	@echo "🧹 Unsetting AWS environment variables..."
-	@if [ ! -f .env.prod ]; then \
-		echo "❌ Error: .env.prod file not found. Create it with your environment variables."; \
+	@if [ ! -f "$(DEPLOY_ENV_ABS)" ]; then \
+		echo "❌ Missing $(ENV_FILE) at $(DEPLOY_ENV_ABS). Copy from .env.example and edit."; \
 		exit 1; \
 	fi
-	@echo "📦 Building frontend..."
-	@cd frontend && npm run build
-	@echo "📦 Building Podman image locally (no cache)..."
-	@(unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_PROFILE AWS_DEFAULT_REGION AWS_SSO_REGION; \
-	podman build \
-		--no-cache \
-		--network=host \
-		-t cloud-manager:dev .) || \
-		(echo "❌ Podman build failed. Trying without network isolation..." && \
-		 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_PROFILE AWS_DEFAULT_REGION AWS_SSO_REGION && \
-		 podman build --no-cache --network=host -t cloud-manager:dev .)
-	@echo "☸️  Deploying to Kubernetes cluster..."
-	@kubectl apply -f k8s/namespace.yaml
-	@echo "🔐 Generating admin password..."
-	@if ! grep -q "^ADMIN_PASSWORD=" .env.prod 2>/dev/null || [ -z "$$(grep '^ADMIN_PASSWORD=' .env.prod | cut -d'=' -f2)" ]; then \
-		ADMIN_PASSWORD=$$(openssl rand -base64 16 | tr -d "=+/" | cut -c1-16); \
-		echo "✅ Generated random admin password (stored in .env.prod)"; \
-		if grep -q "^ADMIN_PASSWORD=" .env.prod 2>/dev/null; then \
-			sed -i.bak "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=$$ADMIN_PASSWORD|" .env.prod; \
+	@echo "🚀 Local development (no containers)..."
+	@echo "🧹 Unsetting AWS env vars so values from $(ENV_FILE) apply (godotenv does not override the shell)."
+	@$(MAKE) build-frontend
+	@echo "🔐 Ensuring admin password in $(ENV_FILE)..."
+	@cd "$(MAKEFILE_DIR)" && ENVF="$(DEPLOY_ENV_ABS)" && \
+		if ! grep -q "^ADMIN_PASSWORD=" "$$ENVF" 2>/dev/null || [ -z "$$(grep '^ADMIN_PASSWORD=' "$$ENVF" | cut -d'=' -f2)" ]; then \
+			ADMIN_PASSWORD=$$(openssl rand -base64 16 | tr -d "=+/" | cut -c1-16); \
+			echo "✅ Generated random admin password (stored in $$ENVF)"; \
+			if grep -q "^ADMIN_PASSWORD=" "$$ENVF" 2>/dev/null; then \
+				sed -i.bak "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=$$ADMIN_PASSWORD|" "$$ENVF"; \
+			else \
+				echo "ADMIN_PASSWORD=$$ADMIN_PASSWORD" >> "$$ENVF"; \
+			fi; \
+			if ! grep -q "^ADMIN_USERNAME=" "$$ENVF" 2>/dev/null; then \
+				echo "ADMIN_USERNAME=admin" >> "$$ENVF"; \
+			fi; \
 		else \
-			echo "ADMIN_PASSWORD=$$ADMIN_PASSWORD" >> .env.prod; \
-		fi; \
-		if ! grep -q "^ADMIN_USERNAME=" .env.prod 2>/dev/null; then \
-			echo "ADMIN_USERNAME=admin" >> .env.prod; \
-		fi; \
-	else \
-		echo "✅ Using existing admin password from .env.prod"; \
-	fi; \
-	ADMIN_USERNAME=$$(grep '^ADMIN_USERNAME=' .env.prod 2>/dev/null | cut -d'=' -f2 || echo "admin"); \
-	kubectl create secret generic app-secrets --namespace=cloud-manager \
-		--from-env-file=.env.prod \
-		--dry-run=client -o yaml | kubectl apply -f -
-	@kubectl apply -f k8s/configmap.yaml
-	@kubectl apply -f k8s/pvc.yaml
-	@sed 's|image: ghcr.io/mirantis/cloud-manager:latest|image: cloud-manager:dev\n        imagePullPolicy: Never|' \
-		k8s/app-deployment.yaml | kubectl apply -f -
-	@kubectl apply -f k8s/service.yaml
-	@echo "🔄 Forcing pod restart to pick up new image..."
-	@kubectl rollout restart deployment/cloud-manager -n cloud-manager
-	@echo "⏳ Waiting for deployment to be ready..."
-	@kubectl rollout status deployment/cloud-manager -n cloud-manager --timeout=120s
-	@echo "✅ Deployment ready!"
-	@echo ""
-	@ADMIN_USERNAME=$$(grep '^ADMIN_USERNAME=' .env.prod 2>/dev/null | cut -d'=' -f2 || echo "admin"); \
-	echo "🔐 Admin credentials configured (username: $$ADMIN_USERNAME)"
-	@echo "   Password stored in .env.prod file (not displayed for security)"
-	@echo ""
-	@echo "💡 Access the app at http://localhost:8080"
-	@echo "🔌 Starting port-forward and showing logs (Ctrl+C to stop)..."
-	@trap 'kill 0' INT TERM; \
-	kubectl port-forward -n cloud-manager svc/cloud-manager 8080:8080 & \
-	sleep 2 && kubectl logs -f -n cloud-manager -l app.kubernetes.io/name=cloud-manager & \
-	wait
+			echo "✅ Using existing admin password from $(ENV_FILE)"; \
+		fi
+	@ADMIN_USERNAME=$$(grep '^ADMIN_USERNAME=' "$(DEPLOY_ENV_ABS)" 2>/dev/null | cut -d'=' -f2 || echo "admin"); \
+		echo "🔐 Admin username: $$ADMIN_USERNAME (password in $(ENV_FILE))"; \
+		echo "💡 Open http://localhost:$${PORT:-8080}  (Ctrl+C to stop)"; \
+		echo ""
+	@cd "$(MAKEFILE_DIR)" && \
+		unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_PROFILE AWS_DEFAULT_REGION AWS_SSO_REGION && \
+		set -a && . "$(DEPLOY_ENV_ABS)" && set +a && \
+		(command -v air >/dev/null 2>&1 && exec air || exec go run ./cmd/server)
 
 # Run locally with podman compose (uses .env.prod)
 dev-compose:
@@ -240,14 +218,14 @@ dev-compose-stop:
 	@echo "🛑 Stopping podman compose..."
 	podman compose down
 
-# Stop local k8s development deployment
+# Optional: tear down legacy in-cluster dev from older Makefile (not used by `make dev` today)
 dev-stop:
-	@echo "🛑 Stopping local Kubernetes deployment..."
+	@echo "🛑 Removing legacy cloud-manager objects from local Kubernetes (if any)..."
 	@kubectl delete deployment cloud-manager -n cloud-manager --ignore-not-found
 	@kubectl delete secret app-secrets -n cloud-manager --ignore-not-found
-	@echo "✅ Local deployment stopped"
+	@echo "✅ Done (ignored if cluster/namespace absent)"
 
-# Show logs from local k8s deployment
+# Legacy: follow logs from in-cluster deployment (use terminal output for `make dev`)
 dev-logs:
 	@kubectl logs -f -n cloud-manager -l app.kubernetes.io/name=cloud-manager
 
@@ -644,25 +622,64 @@ cli-status: build-cli
 debug-probe-cloudmanager:
 	@python3 "$(CURDIR)/scripts/k8s_debug_probe.py"
 
+# One-shot remote diagnostics for 503 / scheduling (needs same HOST/USER as deploy)
+diagnose-k8s:
+	@if [ -z "$(HOST)" ]; then \
+		echo "❌ Usage: make diagnose-k8s HOST=ssh-target [USER=ubuntu]  (same as make deploy)"; \
+		exit 1; \
+	fi
+	$(eval TARGET_HOST := $(if $(USER),$(USER)@$(HOST),$(HOST)))
+	@echo "🔍 Diagnostics on $(TARGET_HOST) (namespace cloud-manager)..."
+	@ssh "$(TARGET_HOST)" 'export PATH="$$PATH:/usr/local/bin:/snap/bin"; \
+		command -v $(KUBECTL) >/dev/null 2>&1 || { echo "kubectl not found"; exit 127; }; \
+		echo "=== PVC / PV (if Pending: delete pvc + deployment, redeploy; default make deploy uses hostpath PV) ===" && \
+		$(KUBECTL) get pvc -n cloud-manager -o wide 2>/dev/null; \
+		$(KUBECTL) get pv 2>/dev/null | grep -E "NAME|cloud-manager" || true; \
+		$(KUBECTL) describe pvc cloud-manager-data -n cloud-manager 2>/dev/null | tail -25; \
+		echo "" && echo "=== pods / svc / endpoints ===" && \
+		$(KUBECTL) get pods,svc,endpoints -n cloud-manager -o wide 2>/dev/null && \
+		echo "" && echo "=== ingress / app secret ===" && \
+		$(KUBECTL) get ingress -n cloud-manager 2>/dev/null; \
+		$(KUBECTL) get secret app-secrets -n cloud-manager 2>/dev/null; \
+		echo "" && echo "=== app pod describe (first app pod) ===" && \
+		POD=$$($(KUBECTL) get pods -n cloud-manager -l app.kubernetes.io/component=app -o jsonpath="{.items[0].metadata.name}" 2>/dev/null); \
+		if [ -n "$$POD" ]; then $(KUBECTL) describe pod -n cloud-manager "$$POD" | tail -40; else echo "(no app pod)"; fi; \
+		echo "" && echo "=== app logs (last 60 lines) ===" && \
+		$(KUBECTL) logs -n cloud-manager -l app.kubernetes.io/component=app --tail=60 2>/dev/null || echo "(no logs)"'
+
+# Stream cloud-manager app logs (SSH host must have kubeconfig for the cluster; same HOST/USER as deploy)
+logs:
+	@if [ -z "$(HOST)" ]; then \
+		echo "❌ Usage: make logs HOST=ssh-target [USER=ubuntu] [TAIL=100] [KUBECTL=kubectl]"; \
+		exit 1; \
+	fi
+	$(eval TARGET_HOST := $(if $(USER),$(USER)@$(HOST),$(HOST)))
+	@echo "📋 Following cloud-manager logs on $(TARGET_HOST) (namespace cloud-manager, Ctrl+C to stop)..."
+	@ssh -t "$(TARGET_HOST)" 'export PATH="$$PATH:/usr/local/bin:/snap/bin"; \
+		command -v $(KUBECTL) >/dev/null 2>&1 || { echo "kubectl not found"; exit 127; }; \
+		exec $(KUBECTL) logs -n cloud-manager -l app.kubernetes.io/component=app -f --tail=$(TAIL)'
+
 deploy:
 	@if [ -z "$(HOST)" ]; then \
 		echo "❌ Error: HOST is required (SSH target). Usage: make deploy HOST=bastion.example.com DOMAIN=app.example.com [USER=ubuntu]"; \
 		exit 1; \
 	fi
+	@if [ ! -f "$(DEPLOY_ENV_ABS)" ]; then \
+		echo "❌ Deploy env file missing: $(DEPLOY_ENV_ABS)"; \
+		echo "   Create $(ENV_FILE) with AWS and app credentials (see .env.example), then re-run deploy."; \
+		exit 1; \
+	fi
 	$(eval TARGET_HOST := $(if $(USER),$(USER)@$(HOST),$(HOST)))
 	$(eval APP_DOMAIN := $(if $(DOMAIN),$(DOMAIN),$(HOST)))
 	@echo "☸️  Deploying application to $(TARGET_HOST) using Kubernetes..."
-	@echo "🌐 Public hostname (Ingress TLS): $(APP_DOMAIN)"
+	@echo "🔐 Using env file: $(DEPLOY_ENV_ABS)"
+	@echo "🌐 Public hostname (Ingress HTTP): $(APP_DOMAIN)"
+	@echo "💾 PVC mode: $(K8S_STORAGE) (hostpath = static PV on node /var/lib/cloud-manager-data)"
 	@echo "📤 Copying Kubernetes manifests to $(TARGET_HOST)..."
 	@ssh "$(TARGET_HOST)" 'mkdir -p "$$HOME/cloud-manager"'
 	@scp -r k8s/ "$(TARGET_HOST)":~/cloud-manager/
-	@if [ -f .env.prod ]; then \
-		echo "📤 Copying production environment file (.env.prod)..."; \
-		scp .env.prod "$(TARGET_HOST)":~/cloud-manager/k8s/.env; \
-	else \
-		echo "⚠️  No .env.prod found, creating from .env.example"; \
-		scp .env.example "$(TARGET_HOST)":~/cloud-manager/k8s/.env; \
-	fi
+	@echo "📤 Copying $(ENV_FILE) → remote k8s/.env (Kubernetes secret app-secrets)..."
+	@scp "$(DEPLOY_ENV_ABS)" "$(TARGET_HOST)":~/cloud-manager/k8s/.env
 	@echo "☸️  Configuring secrets and deploying to Kubernetes..."
 	@ssh "$(TARGET_HOST)" 'export PATH="$$PATH:/usr/local/bin:/snap/bin"; \
 		command -v $(KUBECTL) >/dev/null 2>&1 || { echo "kubectl not found on remote host (non-interactive PATH). Install kubectl or retry with e.g. KUBECTL=/snap/bin/kubectl"; exit 127; }; \
@@ -689,25 +706,16 @@ deploy:
 		$(KUBECTL) create secret generic app-secrets --namespace=cloud-manager \
 			--from-env-file=k8s/.env \
 			--dry-run=client -o yaml | $(KUBECTL) apply -f - && \
-		if ! $(KUBECTL) get crd clusterissuers.cert-manager.io >/dev/null 2>&1; then \
-			echo "📥 Installing cert-manager $(CERT_MANAGER_VERSION) (controller + CRDs)..." && \
-			$(KUBECTL) apply -f "$(CERT_MANAGER_INSTALL_URL)" && \
-			$(KUBECTL) wait --for=condition=Established crd/clusterissuers.cert-manager.io --timeout=120s && \
-			$(KUBECTL) rollout status deployment/cert-manager -n cert-manager --timeout=180s && \
-			$(KUBECTL) rollout status deployment/cert-manager-webhook -n cert-manager --timeout=180s && \
-			$(KUBECTL) rollout status deployment/cert-manager-cainjector -n cert-manager --timeout=180s; \
-		else \
-			echo "✅ cert-manager CRDs already present"; \
-		fi && \
-		echo "☸️  Applying cert-manager ClusterIssuers..." && \
-		$(KUBECTL) apply -f k8s/cert-manager.yaml && \
-		echo "🔧 Creating certificate for domain $(APP_DOMAIN)..." && \
-		sed "s/DOMAIN_PLACEHOLDER/$(APP_DOMAIN)/g" k8s/certificate.yaml | $(KUBECTL) apply -f - && \
-		echo "🔧 Creating ingress for domain $(APP_DOMAIN)..." && \
-		sed "s/DOMAIN_PLACEHOLDER/$(APP_DOMAIN)/g" k8s/ingress.yaml | $(KUBECTL) apply -f - && \
+		echo "🔧 Creating ingress (HTTP only, no TLS)..." && \
+		sed "s|DOMAIN_PLACEHOLDER|$(APP_DOMAIN)|g" k8s/ingress.yaml | $(KUBECTL) apply -f - && \
 		echo "☸️  Applying remaining Kubernetes manifests..." && \
 		$(KUBECTL) apply -f k8s/configmap.yaml && \
-		$(KUBECTL) apply -f k8s/pvc.yaml && \
+		if [ "$(K8S_STORAGE)" = "hostpath" ]; then \
+			$(KUBECTL) apply -f k8s/pv-hostpath.yaml && \
+			$(KUBECTL) apply -f k8s/pvc-hostpath.yaml; \
+		else \
+			$(KUBECTL) apply -f k8s/pvc.yaml; \
+		fi && \
 		$(KUBECTL) apply -f k8s/app-deployment.yaml && \
 		$(KUBECTL) apply -f k8s/service.yaml'
 	@echo "✅ Application deployed successfully to Kubernetes cluster on $(TARGET_HOST)"
@@ -719,25 +727,17 @@ deploy:
 		echo "  Password stored in k8s/.env file (not displayed for security)"'
 	@echo ""
 	@echo "🌐 External Access Information:"
-	@echo "  📍 HTTPS Access (Port 443): https://$(APP_DOMAIN)"
-	@echo "  📍 HTTP Access (Port 80): http://$(APP_DOMAIN) (redirects to HTTPS)"
-	@echo "  📍 Via Nginx Ingress Controller with Let's Encrypt SSL"
-	@echo "  📍 Traffic flows: Internet → Ingress (SSL termination) → cloud-manager service → backend"
+	@echo "  📍 HTTP (port 80): http://$(APP_DOMAIN)"
+	@echo "  📍 Nginx Ingress → cloud-manager service → backend (TLS not configured by deploy)"
 	@echo ""
 	@echo "🔍 Checking deployment status..."
-	@ssh "$(TARGET_HOST)" 'export PATH="$$PATH:/usr/local/bin:/snap/bin"; command -v $(KUBECTL) >/dev/null 2>&1 && $(KUBECTL) get pods -n cloud-manager && $(KUBECTL) get services -n cloud-manager && $(KUBECTL) get ingress -n cloud-manager && $(KUBECTL) get certificates -n cloud-manager'
-	@echo ""
-	@echo "🔒 SSL Certificate Information:"
-	@echo "   • Let's Encrypt certificate will be automatically provisioned"
-	@echo "   • Certificate status: kubectl get certificates -n cloud-manager"
-	@echo "   • Certificate issuer: letsencrypt-prod"
+	@ssh "$(TARGET_HOST)" 'export PATH="$$PATH:/usr/local/bin:/snap/bin"; command -v $(KUBECTL) >/dev/null 2>&1 && $(KUBECTL) get pods -n cloud-manager && $(KUBECTL) get services -n cloud-manager && $(KUBECTL) get ingress -n cloud-manager'
 	@echo ""
 	@echo "💡 External Access:"
-	@echo "   • Primary: https://$(APP_DOMAIN) (HTTPS with Let's Encrypt SSL)"
-	@echo "   • Fallback: http://$(APP_DOMAIN) (redirects to HTTPS)"
-	@echo "   • Requires: Nginx Ingress Controller + cert-manager"
+	@echo "   • Use: http://$(APP_DOMAIN)"
+	@echo "   • Requires: Nginx Ingress Controller (TLS optional; k8s/cert-manager.yaml not applied by deploy)"
 	@echo "   • Authentication is handled by the application (admin username/password)"
-	@echo "   • Make sure ports 80 and 443 are open in your firewall/security groups"
+	@echo "   • Open port 80 to the ingress (443 only if you add TLS later)"
 
 # Install k0s (single-controller + embedded etcd) and upstream kubectl on a remote host. Requires passwordless sudo (sudo -n).
 # Optional K0S_VERSION pins get.k0s.sh (e.g. v1.29.2+k0s.0); kubectl version is derived (same minor) or stable.
@@ -816,19 +816,19 @@ install-ingress-nginx:
 		fi && \
 		echo "✅ ingress-nginx ready. Check: $(KUBECTL) get svc,pods -n ingress-nginx"'
 
-# Validate production environment file
+# Validate production environment file (same defaults as deploy: ENV_FILE, path vs Makefile dir)
 validate-prod-env:
 	@echo "🔍 Validating production environment configuration..."
-	@if [ ! -f .env.prod ]; then \
-		echo "❌ .env.prod not found. Create it from .env.example:"; \
-		echo "   cp .env.example .env.prod"; \
-		echo "   # Edit .env.prod with production values"; \
+	@if [ ! -f "$(DEPLOY_ENV_ABS)" ]; then \
+		echo "❌ $(ENV_FILE) not found at $(DEPLOY_ENV_ABS). Create it from .env.example:"; \
+		echo "   cp .env.example $(ENV_FILE)"; \
+		echo "   # Edit with production values"; \
 		exit 1; \
 	fi
-	@echo "✅ .env.prod exists"
+	@echo "✅ $(DEPLOY_ENV_ABS) exists"
 	@echo "🔍 Checking required variables..."
-	@if ! grep -q "^ADMIN_PASSWORD=" .env.prod || grep -q "^ADMIN_PASSWORD=$$" .env.prod; then \
-		echo "⚠️  ADMIN_PASSWORD not set in .env.prod (will be auto-generated)"; \
+	@if ! grep -q "^ADMIN_PASSWORD=" "$(DEPLOY_ENV_ABS)" || grep -q "^ADMIN_PASSWORD=$$" "$(DEPLOY_ENV_ABS)"; then \
+		echo "⚠️  ADMIN_PASSWORD not set in $(ENV_FILE) (deploy will auto-generate on remote if empty)"; \
 	fi
 	@echo "✅ Production environment validation passed"
 
