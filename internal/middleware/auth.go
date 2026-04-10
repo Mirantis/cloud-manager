@@ -2,11 +2,17 @@ package middleware
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/rusik69/aws-iam-manager/internal/db"
 
 	"github.com/gin-gonic/gin"
 )
@@ -104,8 +110,14 @@ func ClearSessionsForTest() {
 	globalSessionStore.sessions = make(map[string]*Session)
 }
 
-// AuthMiddleware handles session-based authentication
-func AuthMiddleware() gin.HandlerFunc {
+// HashAPIToken returns hex-encoded SHA-256 of the raw token (matches stored api_tokens.token_hash).
+func HashAPIToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+// AuthMiddleware handles session-based and Bearer API token authentication.
+func AuthMiddleware(appDB *db.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip authentication for health check and auth endpoints
 		path := c.Request.URL.Path
@@ -114,37 +126,45 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Check for session cookie
-		sessionID, err := c.Cookie("session_id")
-		if err != nil || sessionID == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error":   "Authentication required",
-				"message": "Please log in to access this resource",
-			})
-			c.Abort()
-			return
+		// Session cookie (web UI)
+		if sessionID, err := c.Cookie("session_id"); err == nil && sessionID != "" {
+			if session, ok := globalSessionStore.GetSession(sessionID); ok {
+				c.Set("username", session.Username)
+				c.Set("role", session.Role)
+				c.Set("authenticated", true)
+				log.Printf("[INFO] Authenticated user: %s (%s) accessing: %s %s",
+					session.Username, session.Role, c.Request.Method, path)
+				c.Next()
+				return
+			}
 		}
 
-		// Validate session
-		session, exists := globalSessionStore.GetSession(sessionID)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error":   "Invalid session",
-				"message": "Your session has expired. Please log in again",
-			})
-			c.Abort()
-			return
+		// Bearer API token
+		auth := strings.TrimSpace(c.GetHeader("Authorization"))
+		if appDB != nil && strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+			raw := strings.TrimSpace(auth[7:])
+			if raw != "" {
+				user, err := appDB.ValidateToken(HashAPIToken(raw))
+				if err == nil {
+					c.Set("username", user.Username)
+					c.Set("role", user.Role)
+					c.Set("authenticated", true)
+					log.Printf("[INFO] Authenticated user (API token): %s (%s) accessing: %s %s",
+						user.Username, user.Role, c.Request.Method, path)
+					c.Next()
+					return
+				}
+				if err != sql.ErrNoRows {
+					log.Printf("[WARN] API token validation error: %v", err)
+				}
+			}
 		}
 
-		// Store user information in context
-		c.Set("username", session.Username)
-		c.Set("role", session.Role)
-		c.Set("authenticated", true)
-
-		log.Printf("[INFO] Authenticated user: %s (%s) accessing: %s %s",
-			session.Username, session.Role, c.Request.Method, path)
-
-		c.Next()
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":   "Authentication required",
+			"message": "Please log in or provide a valid API token",
+		})
+		c.Abort()
 	}
 }
 
@@ -195,10 +215,15 @@ func canWrite(role string) bool {
 }
 
 // WriteAccessMiddleware allows GET/HEAD/OPTIONS for all authenticated users; other methods require editor or admin.
+// Per-user API token CRUD under /api/auth/tokens is allowed for any authenticated role (including viewer).
 func WriteAccessMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		m := c.Request.Method
 		if m == http.MethodGet || m == http.MethodHead || m == http.MethodOptions {
+			c.Next()
+			return
+		}
+		if strings.HasPrefix(c.Request.URL.Path, "/api/auth/tokens") {
 			c.Next()
 			return
 		}

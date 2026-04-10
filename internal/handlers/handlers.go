@@ -3,8 +3,11 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -196,6 +199,97 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 		"role":          role,
 		"authenticated": true,
 	})
+}
+
+// CreateAPITokenRequest is the body for POST /api/auth/tokens.
+type CreateAPITokenRequest struct {
+	Description string `json:"description"`
+	ExpiresAt   string `json:"expires_at"` // optional RFC3339
+}
+
+// GenerateToken creates a new API token for the authenticated user; the raw token is returned once.
+func (h *Handler) GenerateToken(c *gin.Context) {
+	username, ok := middleware.GetCurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	var req CreateAPITokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON body"})
+		return
+	}
+	var exp *time.Time
+	if strings.TrimSpace(req.ExpiresAt) != "" {
+		t, err := time.Parse(time.RFC3339, strings.TrimSpace(req.ExpiresAt))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "expires_at must be RFC3339"})
+			return
+		}
+		if !t.After(time.Now().UTC()) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "expires_at must be in the future"})
+			return
+		}
+		exp = &t
+	}
+	raw := middleware.GenerateSessionID()
+	id, err := h.appDB.CreateToken(username, middleware.HashAPIToken(raw), strings.TrimSpace(req.Description), exp)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	out := gin.H{
+		"id":          id,
+		"token":       raw,
+		"description": strings.TrimSpace(req.Description),
+	}
+	if exp != nil {
+		out["expires_at"] = exp.UTC()
+	}
+	c.JSON(http.StatusCreated, out)
+}
+
+// ListTokens lists API token metadata for the authenticated user (secrets are never listed).
+func (h *Handler) ListTokens(c *gin.Context) {
+	username, ok := middleware.GetCurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	tokens, err := h.appDB.ListTokens(username)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if tokens == nil {
+		tokens = []db.APIToken{}
+	}
+	c.JSON(http.StatusOK, tokens)
+}
+
+// RevokeToken deletes an API token by id (owner or admin).
+func (h *Handler) RevokeToken(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid token id"})
+		return
+	}
+	username, ok := middleware.GetCurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	role, _ := middleware.GetCurrentRole(c)
+	if err := h.appDB.DeleteToken(id, username, role); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "token not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Token revoked"})
 }
 
 func validAppRole(role string) bool {

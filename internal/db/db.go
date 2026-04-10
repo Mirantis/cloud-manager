@@ -2,11 +2,20 @@ package db
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
+
+// APIToken is metadata for a stored API token (secret is never returned after creation).
+type APIToken struct {
+	ID          int64      `json:"id"`
+	Description string     `json:"description"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+}
 
 // AppUser is an application user (no password in JSON).
 type AppUser struct {
@@ -22,7 +31,13 @@ type DB struct {
 
 // Open opens the SQLite database and ensures schema exists.
 func Open(path string) (*DB, error) {
-	conn, err := sql.Open("sqlite", path)
+	dsn := path
+	if strings.Contains(path, "?") {
+		dsn = path + "&_pragma=foreign_keys(1)"
+	} else {
+		dsn = path + "?_pragma=foreign_keys(1)"
+	}
+	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -36,6 +51,20 @@ func Open(path string) (*DB, error) {
 			password_hash TEXT NOT NULL,
 			role TEXT NOT NULL CHECK(role IN ('admin','editor','viewer')),
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	_, err = conn.Exec(`
+		CREATE TABLE IF NOT EXISTS api_tokens (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+			token_hash TEXT NOT NULL UNIQUE,
+			description TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			expires_at DATETIME
 		)
 	`)
 	if err != nil {
@@ -141,4 +170,103 @@ func (d *DB) UpdatePassword(username, passwordHash string) error {
 // Close closes the database.
 func (d *DB) Close() error {
 	return d.conn.Close()
+}
+
+// CreateToken inserts an API token row; tokenHash must be hex-encoded SHA-256 of the raw secret.
+func (d *DB) CreateToken(username, tokenHash, description string, expiresAt *time.Time) (int64, error) {
+	var exp interface{}
+	if expiresAt != nil {
+		exp = expiresAt.UTC().Format(time.RFC3339)
+	}
+	res, err := d.conn.Exec(
+		`INSERT INTO api_tokens (username, token_hash, description, expires_at) VALUES (?, ?, ?, ?)`,
+		username, tokenHash, description, exp,
+	)
+	if err != nil {
+		return 0, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// ValidateToken looks up a token by hex-encoded SHA-256 hash and returns the app user if valid and not expired.
+func (d *DB) ValidateToken(tokenHash string) (*AppUser, error) {
+	var u AppUser
+	var createdAt string
+	var expiresAt sql.NullString
+	err := d.conn.QueryRow(`
+		SELECT u.username, u.role, u.created_at, t.expires_at
+		FROM api_tokens t
+		JOIN users u ON u.username = t.username
+		WHERE t.token_hash = ?`,
+		tokenHash,
+	).Scan(&u.Username, &u.Role, &createdAt, &expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	if expiresAt.Valid && expiresAt.String != "" {
+		exp, parseErr := time.Parse(time.RFC3339, expiresAt.String)
+		if parseErr != nil {
+			exp = parseCreatedAt(expiresAt.String)
+		}
+		if !exp.IsZero() && time.Now().UTC().After(exp.UTC()) {
+			return nil, sql.ErrNoRows
+		}
+	}
+	u.CreatedAt = parseCreatedAt(createdAt)
+	return &u, nil
+}
+
+// ListTokens returns non-secret metadata for all API tokens owned by username.
+func (d *DB) ListTokens(username string) ([]APIToken, error) {
+	rows, err := d.conn.Query(`
+		SELECT id, description, created_at, expires_at
+		FROM api_tokens WHERE username = ? ORDER BY id DESC`,
+		username,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []APIToken
+	for rows.Next() {
+		var t APIToken
+		var createdAt, exp sql.NullString
+		if err := rows.Scan(&t.ID, &t.Description, &createdAt, &exp); err != nil {
+			return nil, err
+		}
+		if createdAt.Valid {
+			t.CreatedAt = parseCreatedAt(createdAt.String)
+		}
+		if exp.Valid && exp.String != "" {
+			parsed := parseCreatedAt(exp.String)
+			if !parsed.IsZero() {
+				t.ExpiresAt = &parsed
+			}
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// DeleteToken removes a token by id if the actor owns it, or if actorRole is admin.
+func (d *DB) DeleteToken(id int64, actorUsername, actorRole string) error {
+	var res sql.Result
+	var err error
+	if actorRole == "admin" {
+		res, err = d.conn.Exec(`DELETE FROM api_tokens WHERE id = ?`, id)
+	} else {
+		res, err = d.conn.Exec(`DELETE FROM api_tokens WHERE id = ? AND username = ?`, id, actorUsername)
+	}
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

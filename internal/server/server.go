@@ -22,6 +22,7 @@ import (
 
 type Server struct {
 	config          config.Config
+	appDB           *db.DB
 	handler         *handlers.Handler
 	azureHandler    *handlers.AzureHandler
 	azureRMHandler  *handlers.AzureRMHandler
@@ -85,6 +86,7 @@ func NewServer(cfg config.Config) (*Server, error) {
 
 	return &Server{
 		config:         cfg,
+		appDB:          appDB,
 		handler:        handler,
 		azureHandler:   azureHandler,
 		azureRMHandler: azureRMHandler,
@@ -166,7 +168,7 @@ func (s *Server) SetupRoutes() *gin.Engine {
 
 	// Admin-only application user management
 	adminAPI := r.Group("/api/admin")
-	adminAPI.Use(middleware.AuthMiddleware())
+	adminAPI.Use(middleware.AuthMiddleware(s.appDB))
 	adminAPI.Use(middleware.AdminMiddleware())
 	{
 		adminAPI.POST("/users", s.handler.CreateAppUser)
@@ -177,11 +179,14 @@ func (s *Server) SetupRoutes() *gin.Engine {
 
 	// Protected API routes (require authentication)
 	apiProtected := r.Group("/api")
-	apiProtected.Use(middleware.AuthMiddleware())
+	apiProtected.Use(middleware.AuthMiddleware(s.appDB))
 	apiProtected.Use(middleware.WriteAccessMiddleware())
 	{
 		// Authentication info route
 		apiProtected.GET("/auth/user", s.handler.GetCurrentUser)
+		apiProtected.POST("/auth/tokens", s.handler.GenerateToken)
+		apiProtected.GET("/auth/tokens", s.handler.ListTokens)
+		apiProtected.DELETE("/auth/tokens/:id", s.handler.RevokeToken)
 
 		// Account and user management routes
 		apiProtected.GET("/accounts", s.handler.ListAccounts)

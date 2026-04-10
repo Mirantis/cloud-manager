@@ -86,7 +86,7 @@ func TestAuthMiddleware(t *testing.T) {
 	clearAllSessions(t)
 
 	r := gin.New()
-	r.Use(AuthMiddleware())
+	r.Use(AuthMiddleware(nil))
 	r.GET("/api/accounts", func(c *gin.Context) {
 		u, _ := GetCurrentUser(c)
 		role, _ := GetCurrentRole(c)
@@ -121,7 +121,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 	t.Run("public check skips auth", func(t *testing.T) {
 		r2 := gin.New()
-		r2.Use(AuthMiddleware())
+		r2.Use(AuthMiddleware(nil))
 		r2.GET("/api/auth/check", func(c *gin.Context) { c.Status(http.StatusOK) })
 		w := httptest.NewRecorder()
 		r2.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/auth/check", nil))

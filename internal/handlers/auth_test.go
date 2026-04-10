@@ -50,14 +50,14 @@ func setupAuthRouter(t *testing.T) *gin.Engine {
 	r.GET("/api/auth/check", h.CheckAuth)
 
 	admin := r.Group("/api/admin")
-	admin.Use(middleware.AuthMiddleware(), middleware.AdminMiddleware())
+	admin.Use(middleware.AuthMiddleware(appDB), middleware.AdminMiddleware())
 	admin.POST("/users", h.CreateAppUser)
 	admin.GET("/users", h.ListAppUsers)
 	admin.DELETE("/users/:username", h.DeleteAppUser)
 	admin.PUT("/users/:username/password", h.UpdateAppUserPassword)
 
 	api := r.Group("/api")
-	api.Use(middleware.AuthMiddleware(), middleware.WriteAccessMiddleware())
+	api.Use(middleware.AuthMiddleware(appDB), middleware.WriteAccessMiddleware())
 	api.GET("/accounts", h.ListAccounts)
 	api.DELETE("/accounts/:accountId/users/:username", h.DeleteUser)
 	api.GET("/auth/user", h.GetCurrentUser)
