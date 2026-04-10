@@ -31,13 +31,11 @@ type DB struct {
 
 // Open opens the SQLite database and ensures schema exists.
 func Open(path string) (*DB, error) {
-	dsn := path
+	suffix := "?_pragma=foreign_keys(1)"
 	if strings.Contains(path, "?") {
-		dsn = path + "&_pragma=foreign_keys(1)"
-	} else {
-		dsn = path + "?_pragma=foreign_keys(1)"
+		suffix = "&_pragma=foreign_keys(1)"
 	}
-	conn, err := sql.Open("sqlite", dsn)
+	conn, err := sql.Open("sqlite", path+suffix)
 	if err != nil {
 		return nil, err
 	}
