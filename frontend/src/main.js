@@ -28,6 +28,7 @@ import SSOUserAssignments from './components/SSOUserAssignments.vue'
 import SSOAccountAssignments from './components/SSOAccountAssignments.vue'
 import SSOAccountDetail from './components/SSOAccountDetail.vue'
 import AdminUsers from './components/AdminUsers.vue'
+import APITokens from './components/APITokens.vue'
 import { authStore } from './authStore'
 
 const routes = [
@@ -61,6 +62,7 @@ const routes = [
   { path: '/azure/enterprise-apps', name: 'AzureEnterpriseApps', component: AzureEnterpriseApps, meta: { requiresAuth: true } },
   { path: '/azure/vms', name: 'AzureVMs', component: AzureVMs, meta: { requiresAuth: true } },
   { path: '/azure/storage', name: 'AzureStorage', component: AzureStorage, meta: { requiresAuth: true } },
+  { path: '/account/tokens', name: 'APITokens', component: APITokens, meta: { requiresAuth: true } },
   { path: '/admin/users', name: 'AdminUsers', component: AdminUsers, meta: { requiresAuth: true, requiresAdmin: true } },
   // Legacy route redirects for backward compatibility
   { path: '/public-ips', redirect: '/aws/public-ips' },

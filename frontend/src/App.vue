@@ -64,6 +64,21 @@
         </div>
       </div>
 
+      <!-- Account Section -->
+      <div class="sidebar-section" v-if="isAuthenticated">
+        <div class="section-header" @click="toggleAccount">
+          <div class="section-title">
+            <span>Account</span>
+          </div>
+          <svg class="section-arrow" :class="{ 'expanded': accountExpanded }" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/>
+          </svg>
+        </div>
+        <div class="section-tabs" v-if="accountExpanded">
+          <router-link to="/account/tokens" class="sidebar-link">API Tokens</router-link>
+        </div>
+      </div>
+
       <!-- Azure Section -->
       <div class="sidebar-section">
         <div class="section-header" @click="toggleAzure">
@@ -129,6 +144,7 @@ export default {
       awsExpanded: true,
       azureExpanded: true,
       adminExpanded: true,
+      accountExpanded: true,
       sidebarCollapsed: false,
       isMobile: false
     }
@@ -137,6 +153,10 @@ export default {
     toggleAdmin() {
       this.adminExpanded = !this.adminExpanded
       localStorage.setItem('adminExpanded', this.adminExpanded.toString())
+    },
+    toggleAccount() {
+      this.accountExpanded = !this.accountExpanded
+      localStorage.setItem('accountExpanded', this.accountExpanded.toString())
     },
     toggleAWS() {
       this.awsExpanded = !this.awsExpanded
@@ -237,6 +257,10 @@ export default {
     const adminExpanded = localStorage.getItem('adminExpanded')
     if (adminExpanded !== null) {
       this.adminExpanded = adminExpanded === 'true'
+    }
+    const accountExpanded = localStorage.getItem('accountExpanded')
+    if (accountExpanded !== null) {
+      this.accountExpanded = accountExpanded === 'true'
     }
     
     // Handle window resize
