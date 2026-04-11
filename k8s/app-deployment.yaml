@@ -35,6 +35,7 @@ spec:
       containers:
       - name: cloud-manager
         image: ghcr.io/mirantis/cloud-manager:latest
+        imagePullPolicy: Always
         securityContext:
           runAsUser: 1000
           runAsGroup: 1000

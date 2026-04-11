@@ -717,6 +717,9 @@ deploy:
 			$(KUBECTL) apply -f k8s/pvc.yaml; \
 		fi && \
 		$(KUBECTL) apply -f k8s/app-deployment.yaml && \
+		echo "🔄 Restarting deployment to pull and run the latest image (same tag may have a new digest)..." && \
+		$(KUBECTL) rollout restart deployment/cloud-manager -n cloud-manager && \
+		$(KUBECTL) rollout status deployment/cloud-manager -n cloud-manager --timeout=180s && \
 		$(KUBECTL) apply -f k8s/service.yaml'
 	@echo "✅ Application deployed successfully to Kubernetes cluster on $(TARGET_HOST)"
 	@echo ""
