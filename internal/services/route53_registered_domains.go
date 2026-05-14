@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/route53domains"
+	"github.com/aws/aws-sdk-go/service/sts"
 )
 
 // ============================================================================
@@ -28,16 +29,29 @@ func (s *AWSService) ListRoute53RegisteredDomains() ([]models.Route53RegisteredD
 		return nil, fmt.Errorf("failed to list accounts: %v", err)
 	}
 
+	// Get master account ID so we can query it directly (it can't assume its own cross-account role)
+	masterAccountID := ""
+	masterAccountName := "Master Account"
+	if identity, err := sts.New(s.masterSession).GetCallerIdentity(&sts.GetCallerIdentityInput{}); err == nil {
+		masterAccountID = aws.StringValue(identity.Account)
+	}
+	for _, acc := range accounts {
+		if acc.ID == masterAccountID {
+			masterAccountName = acc.Name
+			break
+		}
+	}
+
 	var accessibleAccounts []models.Account
 	for _, account := range accounts {
-		if account.Accessible {
+		if account.Accessible && account.ID != masterAccountID {
 			accessibleAccounts = append(accessibleAccounts, account)
 		}
 	}
 
-	if len(accessibleAccounts) == 0 {
-		return []models.Route53RegisteredDomain{}, nil
-	}
+	// Include master account in the goroutine pool using masterSession directly
+	masterAccount := models.Account{ID: "", Name: masterAccountName}
+	allAccountsToQuery := append([]models.Account{masterAccount}, accessibleAccounts...)
 
 	type accountResult struct {
 		domains   []models.Route53RegisteredDomain
@@ -45,18 +59,23 @@ func (s *AWSService) ListRoute53RegisteredDomains() ([]models.Route53RegisteredD
 		accountID string
 	}
 
-	resultChan := make(chan accountResult, len(accessibleAccounts))
+	resultChan := make(chan accountResult, len(allAccountsToQuery))
 	var wg sync.WaitGroup
 
-	for _, account := range accessibleAccounts {
+	for _, account := range allAccountsToQuery {
 		wg.Add(1)
 		go func(acc models.Account) {
 			defer wg.Done()
+			queryAcc := acc
+			if queryAcc.ID == "" {
+				queryAcc.ID = masterAccountID
+				queryAcc.Name = masterAccountName
+			}
 			domains, err := s.getRoute53RegisteredDomainsForAccount(acc)
 			resultChan <- accountResult{
-				domains:   domains,
+				domains:   overrideAccountInfo(domains, queryAcc.ID, queryAcc.Name),
 				err:       err,
-				accountID: acc.ID,
+				accountID: queryAcc.ID,
 			}
 		}(account)
 	}
@@ -77,6 +96,16 @@ func (s *AWSService) ListRoute53RegisteredDomains() ([]models.Route53RegisteredD
 
 	s.cache.Set(cacheKey, allDomains, s.cacheTTL)
 	return allDomains, nil
+}
+
+func overrideAccountInfo(domains []models.Route53RegisteredDomain, accountID, accountName string) []models.Route53RegisteredDomain {
+	for i := range domains {
+		if domains[i].AccountID == "" {
+			domains[i].AccountID = accountID
+			domains[i].AccountName = accountName
+		}
+	}
+	return domains
 }
 
 func (s *AWSService) getRoute53RegisteredDomainsForAccount(account models.Account) ([]models.Route53RegisteredDomain, error) {
