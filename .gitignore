@@ -75,3 +75,8 @@ trivy-results.sarif
 .rpt2_cache_*/
 .rts2_cache_*/
 .claude/*
+# TLS certificates
+*.key
+*.csr
+*.pem
+*.crt

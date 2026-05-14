@@ -185,6 +185,14 @@ Resources:
               - 's3:PutBucketTagging'
               - 's3:PutBucketPublicAccessBlock'
             Resource: 'arn:aws:s3:::*'
+          - Sid: 'AllowEKSAccess'
+            Effect: Allow
+            Action:
+              - 'eks:ListClusters'
+              - 'eks:DescribeCluster'
+              - 'eks:ListNodegroups'
+              - 'eks:DescribeNodegroup'
+            Resource: '*'
           - Sid: 'AllowRoute53DomainListing'
             Effect: Allow
             Action:
