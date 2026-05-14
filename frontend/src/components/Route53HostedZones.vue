@@ -1,5 +1,5 @@
 <template>
-  <div class="route53-domains-container">
+  <div class="route53-hosted-zones-container">
     <div class="page-header">
       <div class="header-content">
         <div class="header-title">
@@ -9,7 +9,7 @@
             </svg>
           </div>
           <div class="title-content">
-            <h1>Route53 Domains</h1>
+            <h1>Route53 Hosted Zones</h1>
             <p>{{ domains.length }} hosted zones across {{ uniqueAccounts.length }} accounts</p>
           </div>
         </div>
@@ -32,7 +32,7 @@
 
     <div v-if="loading" class="loading-container">
       <div class="loading-spinner"></div>
-      <p>Loading Route53 domains...</p>
+      <p>Loading Route53 hosted zones...</p>
     </div>
 
     <div v-else-if="error" class="error-container">
@@ -41,7 +41,7 @@
           <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
         </svg>
       </div>
-      <h3>Failed to Load Route53 Domains</h3>
+      <h3>Failed to Load Route53 Hosted Zones</h3>
       <p>{{ error }}</p>
       <button @click="loadData" class="btn btn-primary">Try Again</button>
     </div>
@@ -121,7 +121,7 @@
             <tr v-for="domain in filteredDomains" :key="domain.hosted_zone_id" class="data-row">
               <td>
                 <router-link
-                  :to="{ name: 'Route53DomainDetail', params: { accountId: domain.account_id, hostedZoneId: domain.hosted_zone_id }, query: { name: domain.name } }"
+                  :to="{ name: 'Route53HostedZoneDetail', params: { accountId: domain.account_id, hostedZoneId: domain.hosted_zone_id }, query: { name: domain.name } }"
                   class="domain-link"
                 >
                   <code class="domain-name">{{ domain.name }}</code>
@@ -153,7 +153,7 @@
 import axios from 'axios'
 
 export default {
-  name: 'Route53Domains',
+  name: 'Route53HostedZones',
   data() {
     return {
       domains: [],
@@ -229,10 +229,10 @@ export default {
       try {
         this.loading = true
         this.error = null
-        const response = await axios.get('/api/route53-domains')
+        const response = await axios.get('/api/route53-hosted-zones')
         this.domains = response.data || []
       } catch (err) {
-        this.error = err.response?.data?.error || 'Failed to load Route53 domains'
+        this.error = err.response?.data?.error || 'Failed to load Route53 hosted zones'
       } finally {
         this.loading = false
       }
@@ -240,7 +240,7 @@ export default {
     async refreshData() {
       if (this.canModify) {
         try {
-          await axios.post('/api/cache/route53-domains/invalidate')
+          await axios.post('/api/cache/route53-hosted-zones/invalidate')
         } catch (e) {
           console.warn('Failed to invalidate cache:', e)
         }
@@ -264,7 +264,7 @@ export default {
         }
         const dataStr = JSON.stringify(exportData, null, 2)
         const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
-        const exportFileDefaultName = `aws-route53-domains-${new Date().toISOString().split('T')[0]}.json`
+        const exportFileDefaultName = `aws-route53-hosted-zones-${new Date().toISOString().split('T')[0]}.json`
         const linkElement = document.createElement('a')
         linkElement.setAttribute('href', dataUri)
         linkElement.setAttribute('download', exportFileDefaultName)
@@ -279,7 +279,7 @@ export default {
 </script>
 
 <style scoped>
-.route53-domains-container {
+.route53-hosted-zones-container {
   min-height: 100vh;
   background: var(--color-bg-secondary);
   padding: 1.5rem;

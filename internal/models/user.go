@@ -272,8 +272,8 @@ type NATGateway struct {
 	Tags             []Tag      `json:"tags,omitempty"`
 }
 
-// Route53Domain represents an AWS Route53 hosted zone
-type Route53Domain struct {
+// Route53HostedZone represents an AWS Route53 hosted zone
+type Route53HostedZone struct {
 	HostedZoneID   string `json:"hosted_zone_id"`
 	Name           string `json:"name"`
 	RecordSetCount int64  `json:"record_set_count"`

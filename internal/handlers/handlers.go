@@ -1096,25 +1096,25 @@ func (h *Handler) InvalidateS3BucketsCache(c *gin.Context) {
 }
 
 // ============================================================================
-// ROUTE53 DOMAIN HANDLERS
+// ROUTE53 HOSTED ZONE HANDLERS
 // ============================================================================
 
-func (h *Handler) ListRoute53Domains(c *gin.Context) {
-	domains, err := h.awsService.ListRoute53Domains()
+func (h *Handler) ListRoute53HostedZones(c *gin.Context) {
+	zones, err := h.awsService.ListRoute53HostedZones()
 	if err != nil {
-		fmt.Printf("[ERROR] ListRoute53Domains failed: %v\n", err)
+		fmt.Printf("[ERROR] ListRoute53HostedZones failed: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   err.Error(),
-			"details": "Failed to list Route53 domains. Check AWS credentials and permissions.",
+			"details": "Failed to list Route53 hosted zones. Check AWS credentials and permissions.",
 		})
 		return
 	}
-	c.JSON(http.StatusOK, domains)
+	c.JSON(http.StatusOK, zones)
 }
 
-func (h *Handler) InvalidateRoute53DomainsCache(c *gin.Context) {
-	h.awsService.InvalidateRoute53DomainsCache()
-	c.JSON(http.StatusOK, gin.H{"message": "Route53 domains cache invalidated successfully"})
+func (h *Handler) InvalidateRoute53HostedZonesCache(c *gin.Context) {
+	h.awsService.InvalidateRoute53HostedZonesCache()
+	c.JSON(http.StatusOK, gin.H{"message": "Route53 hosted zones cache invalidated successfully"})
 }
 
 func (h *Handler) ListRoute53Records(c *gin.Context) {
@@ -1516,4 +1516,55 @@ func (h *Handler) DeleteNATGateway(c *gin.Context) {
 func (h *Handler) InvalidateNATGatewaysCache(c *gin.Context) {
 	h.awsService.InvalidateNATGatewaysCache()
 	c.JSON(http.StatusOK, gin.H{"message": "NAT Gateways cache invalidated successfully"})
+}
+
+// ============================================================================
+// EKS CLUSTER HANDLERS
+// ============================================================================
+
+func (h *Handler) ListEKSClusters(c *gin.Context) {
+	clusters, err := h.awsService.ListEKSClusters()
+	if err != nil {
+		fmt.Printf("[ERROR] ListEKSClusters failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   err.Error(),
+			"details": "Failed to list EKS clusters. Check AWS credentials and permissions.",
+		})
+		return
+	}
+	c.JSON(http.StatusOK, clusters)
+}
+
+func (h *Handler) ListEKSClustersByAccount(c *gin.Context) {
+	accountID := c.Param("accountId")
+
+	if accountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Account ID is required",
+		})
+		return
+	}
+
+	clusters, err := h.awsService.ListEKSClustersByAccount(accountID)
+	if err != nil {
+		fmt.Printf("[ERROR] ListEKSClustersByAccount failed for account %s: %v\n", accountID, err)
+		if containsAccessDenied(err.Error()) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":   "Access denied to account",
+				"details": fmt.Sprintf("Cannot access account %s.", accountID),
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   err.Error(),
+			"details": fmt.Sprintf("Failed to list EKS clusters for account %s.", accountID),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, clusters)
+}
+
+func (h *Handler) InvalidateEKSClustersCache(c *gin.Context) {
+	h.awsService.InvalidateEKSClustersCache()
+	c.JSON(http.StatusOK, gin.H{"message": "EKS clusters cache invalidated successfully"})
 }

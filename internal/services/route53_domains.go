@@ -11,15 +11,15 @@ import (
 )
 
 // ============================================================================
-// ROUTE53 DOMAIN MANAGEMENT
+// ROUTE53 HOSTED ZONE MANAGEMENT
 // ============================================================================
 
-func (s *AWSService) ListRoute53Domains() ([]models.Route53Domain, error) {
-	const cacheKey = "route53-domains"
+func (s *AWSService) ListRoute53HostedZones() ([]models.Route53HostedZone, error) {
+	const cacheKey = "route53-hosted-zones"
 
 	if cached, found := s.cache.Get(cacheKey); found {
-		if domains, ok := cached.([]models.Route53Domain); ok {
-			return domains, nil
+		if zones, ok := cached.([]models.Route53HostedZone); ok {
+			return zones, nil
 		}
 	}
 
@@ -36,11 +36,11 @@ func (s *AWSService) ListRoute53Domains() ([]models.Route53Domain, error) {
 	}
 
 	if len(accessibleAccounts) == 0 {
-		return []models.Route53Domain{}, nil
+		return []models.Route53HostedZone{}, nil
 	}
 
 	type accountResult struct {
-		domains   []models.Route53Domain
+		zones     []models.Route53HostedZone
 		err       error
 		accountID string
 	}
@@ -52,9 +52,9 @@ func (s *AWSService) ListRoute53Domains() ([]models.Route53Domain, error) {
 		wg.Add(1)
 		go func(acc models.Account) {
 			defer wg.Done()
-			domains, err := s.getRoute53DomainsForAccount(acc)
+			zones, err := s.getRoute53HostedZonesForAccount(acc)
 			resultChan <- accountResult{
-				domains:   domains,
+				zones:     zones,
 				err:       err,
 				accountID: acc.ID,
 			}
@@ -66,20 +66,20 @@ func (s *AWSService) ListRoute53Domains() ([]models.Route53Domain, error) {
 		close(resultChan)
 	}()
 
-	var allDomains []models.Route53Domain
+	var allZones []models.Route53HostedZone
 	for result := range resultChan {
 		if result.err != nil {
-			fmt.Printf("[WARNING] Failed to get Route53 domains for account %s: %v\n", result.accountID, result.err)
+			fmt.Printf("[WARNING] Failed to get Route53 hosted zones for account %s: %v\n", result.accountID, result.err)
 			continue
 		}
-		allDomains = append(allDomains, result.domains...)
+		allZones = append(allZones, result.zones...)
 	}
 
-	s.cache.Set(cacheKey, allDomains, s.cacheTTL)
-	return allDomains, nil
+	s.cache.Set(cacheKey, allZones, s.cacheTTL)
+	return allZones, nil
 }
 
-func (s *AWSService) getRoute53DomainsForAccount(account models.Account) ([]models.Route53Domain, error) {
+func (s *AWSService) getRoute53HostedZonesForAccount(account models.Account) ([]models.Route53HostedZone, error) {
 	sess, err := s.getSessionForAccount(account.ID)
 	if err != nil {
 		return nil, fmt.Errorf("cannot access account %s: %w", account.ID, err)
@@ -87,7 +87,7 @@ func (s *AWSService) getRoute53DomainsForAccount(account models.Account) ([]mode
 
 	client := route53.New(sess.Copy(&aws.Config{Region: aws.String("us-east-1")}))
 
-	var domains []models.Route53Domain
+	var zones []models.Route53HostedZone
 	var marker *string
 
 	for {
@@ -117,7 +117,7 @@ func (s *AWSService) getRoute53DomainsForAccount(account models.Account) ([]mode
 				}
 			}
 
-			domains = append(domains, models.Route53Domain{
+			zones = append(zones, models.Route53HostedZone{
 				HostedZoneID:   aws.StringValue(hz.Id),
 				Name:           aws.StringValue(hz.Name),
 				RecordSetCount: recordCount,
@@ -134,11 +134,11 @@ func (s *AWSService) getRoute53DomainsForAccount(account models.Account) ([]mode
 		marker = resp.NextMarker
 	}
 
-	return domains, nil
+	return zones, nil
 }
 
-func (s *AWSService) InvalidateRoute53DomainsCache() {
-	s.cache.Delete("route53-domains")
+func (s *AWSService) InvalidateRoute53HostedZonesCache() {
+	s.cache.Delete("route53-hosted-zones")
 }
 
 func (s *AWSService) ListRoute53Records(accountID, hostedZoneID string) ([]models.Route53Record, error) {

@@ -646,8 +646,13 @@ func (m *MockAWSService) ListNATGatewaysByAccount(accountID string) ([]models.NA
 }
 func (m *MockAWSService) DeleteNATGateway(accountID, region, natGatewayID string) error { return nil }
 func (m *MockAWSService) InvalidateNATGatewaysCache()                                   {}
-func (m *MockAWSService) ListRoute53Domains() ([]models.Route53Domain, error)           { return nil, nil }
+func (m *MockAWSService) ListRoute53HostedZones() ([]models.Route53HostedZone, error)        { return nil, nil }
 func (m *MockAWSService) ListRoute53Records(accountID, hostedZoneID string) ([]models.Route53Record, error) {
 	return nil, nil
 }
-func (m *MockAWSService) InvalidateRoute53DomainsCache() {}
+func (m *MockAWSService) InvalidateRoute53HostedZonesCache() {}
+func (m *MockAWSService) ListEKSClusters() ([]models.EKSCluster, error)                      { return nil, nil }
+func (m *MockAWSService) ListEKSClustersByAccount(accountID string) ([]models.EKSCluster, error) {
+	return nil, nil
+}
+func (m *MockAWSService) InvalidateEKSClustersCache() {}

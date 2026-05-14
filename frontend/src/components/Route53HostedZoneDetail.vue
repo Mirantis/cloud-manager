@@ -1,7 +1,7 @@
 <template>
-  <div class="route53-domain-detail">
+  <div class="route53-hosted-zone-detail">
     <nav class="breadcrumb">
-      <router-link to="/aws/route53-domains">← Back to Route53 Domains</router-link>
+      <router-link to="/aws/route53-hosted-zones">← Back to Route53 Hosted Zones</router-link>
     </nav>
 
     <div class="page-header">
@@ -120,7 +120,7 @@
 import axios from 'axios'
 
 export default {
-  name: 'Route53DomainDetail',
+  name: 'Route53HostedZoneDetail',
   props: {
     accountId: { type: String, required: true },
     hostedZoneId: { type: String, required: true }
@@ -183,7 +183,7 @@ export default {
         this.loading = true
         this.error = null
         const zoneId = decodeURIComponent(this.hostedZoneId)
-        const url = `/api/accounts/${this.accountId}/route53-domains/${encodeURIComponent(zoneId)}/records`
+        const url = `/api/accounts/${this.accountId}/route53-hosted-zones/${encodeURIComponent(zoneId)}/records`
         const response = await axios.get(url)
         this.records = response.data || []
       } catch (err) {
@@ -227,7 +227,7 @@ export default {
 </script>
 
 <style scoped>
-.route53-domain-detail {
+.route53-hosted-zone-detail {
   min-height: 100vh;
   background: var(--color-bg-secondary);
   padding: 1.5rem;
