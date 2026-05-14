@@ -17,6 +17,7 @@ import VPCs from './components/VPCs.vue'
 import NATGateways from './components/NATGateways.vue'
 import Route53Domains from './components/Route53Domains.vue'
 import Route53DomainDetail from './components/Route53DomainDetail.vue'
+import EKSClusters from './components/EKSClusters.vue'
 import AzureEnterpriseApps from './components/AzureEnterpriseApps.vue'
 import AzureVMs from './components/AzureVMs.vue'
 import AzureStorage from './components/AzureStorage.vue'
@@ -49,6 +50,7 @@ const routes = [
   { path: '/aws/nat-gateways', name: 'NATGateways', component: NATGateways, meta: { requiresAuth: true } },
   { path: '/aws/route53-domains', name: 'Route53Domains', component: Route53Domains, meta: { requiresAuth: true } },
   { path: '/aws/route53-domains/:accountId/:hostedZoneId', name: 'Route53DomainDetail', component: Route53DomainDetail, props: true, meta: { requiresAuth: true } },
+  { path: '/aws/eks-clusters', name: 'EKSClusters', component: EKSClusters, meta: { requiresAuth: true } },
   { path: '/aws/accounts/:accountId/users/:username', name: 'UserDetail', component: UserDetail, props: true, meta: { requiresAuth: true } },
   // SSO Routes
   { path: '/aws/sso/users', name: 'SSOUsers', component: SSOUsers, meta: { requiresAuth: true } },
@@ -76,6 +78,7 @@ const routes = [
   { path: '/vpcs', redirect: '/aws/vpcs' },
   { path: '/nat-gateways', redirect: '/aws/nat-gateways' },
   { path: '/route53-domains', redirect: '/aws/route53-domains' },
+  { path: '/aws/route53-zones', redirect: '/aws/route53-domains' },
   { path: '/accounts/:accountId/users/:username', redirect: to => `/aws/accounts/${to.params.accountId}/users/${to.params.username}` }
 ]
 
