@@ -42,6 +42,7 @@
           <router-link to="/aws/roles" class="sidebar-link">IAM Roles</router-link>
           <router-link to="/aws/snapshots" class="sidebar-link">Snapshots</router-link>
           <router-link to="/aws/route53-hosted-zones" class="sidebar-link">Route53 Hosted Zones</router-link>
+          <router-link to="/aws/route53-registered-domains" class="sidebar-link">Route53 Domains</router-link>
           <router-link to="/aws/eks-clusters" class="sidebar-link">EKS Clusters</router-link>
           <router-link to="/aws/sso/users" class="sidebar-link">SSO Users</router-link>
           <router-link to="/aws/sso/groups" class="sidebar-link">SSO Groups</router-link>

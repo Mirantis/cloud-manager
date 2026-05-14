@@ -1117,6 +1117,24 @@ func (h *Handler) InvalidateRoute53HostedZonesCache(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Route53 hosted zones cache invalidated successfully"})
 }
 
+func (h *Handler) ListRoute53RegisteredDomains(c *gin.Context) {
+	domains, err := h.awsService.ListRoute53RegisteredDomains()
+	if err != nil {
+		fmt.Printf("[ERROR] ListRoute53RegisteredDomains failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   err.Error(),
+			"details": "Failed to list Route53 registered domains. Check AWS credentials and permissions.",
+		})
+		return
+	}
+	c.JSON(http.StatusOK, domains)
+}
+
+func (h *Handler) InvalidateRoute53RegisteredDomainsCache(c *gin.Context) {
+	h.awsService.InvalidateRoute53RegisteredDomainsCache()
+	c.JSON(http.StatusOK, gin.H{"message": "Route53 registered domains cache invalidated successfully"})
+}
+
 func (h *Handler) ListRoute53Records(c *gin.Context) {
 	accountID := c.Param("accountId")
 	hostedZoneID := c.Param("hostedZoneId")

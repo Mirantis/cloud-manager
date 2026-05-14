@@ -290,3 +290,13 @@ type Route53Record struct {
 	TTL    int64    `json:"ttl"`
 	Values []string `json:"values"`
 }
+
+// Route53RegisteredDomain represents an AWS Route53 registered domain
+type Route53RegisteredDomain struct {
+	DomainName   string `json:"domain_name"`
+	Expiry       string `json:"expiry"`
+	AutoRenew    bool   `json:"auto_renew"`
+	TransferLock bool   `json:"transfer_lock"`
+	AccountID    string `json:"account_id"`
+	AccountName  string `json:"account_name"`
+}

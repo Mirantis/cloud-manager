@@ -651,6 +651,10 @@ func (m *MockAWSService) ListRoute53Records(accountID, hostedZoneID string) ([]m
 	return nil, nil
 }
 func (m *MockAWSService) InvalidateRoute53HostedZonesCache() {}
+func (m *MockAWSService) ListRoute53RegisteredDomains() ([]models.Route53RegisteredDomain, error) {
+	return nil, nil
+}
+func (m *MockAWSService) InvalidateRoute53RegisteredDomainsCache() {}
 func (m *MockAWSService) ListEKSClusters() ([]models.EKSCluster, error)                      { return nil, nil }
 func (m *MockAWSService) ListEKSClustersByAccount(accountID string) ([]models.EKSCluster, error) {
 	return nil, nil

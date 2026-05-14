@@ -262,6 +262,7 @@ func (s *Server) SetupRoutes() *gin.Engine {
 		// Backward-compat aliases (old frontend may still use these paths)
 		apiProtected.GET("/route53-domains", s.handler.ListRoute53HostedZones)
 		apiProtected.GET("/accounts/:accountId/route53-domains/:hostedZoneId/records", s.handler.ListRoute53Records)
+		apiProtected.GET("/route53-registered-domains", s.handler.ListRoute53RegisteredDomains)
 
 		// Azure routes (combine Azure AD and Azure RM routes in a single /azure group)
 		if s.azureHandler != nil || s.azureRMHandler != nil {
@@ -423,6 +424,7 @@ func (s *Server) SetupRoutes() *gin.Engine {
 		apiProtected.POST("/cache/nat-gateways/invalidate", s.handler.InvalidateNATGatewaysCache)
 		apiProtected.POST("/cache/route53-hosted-zones/invalidate", s.handler.InvalidateRoute53HostedZonesCache)
 		apiProtected.POST("/cache/route53-domains/invalidate", s.handler.InvalidateRoute53HostedZonesCache)
+		apiProtected.POST("/cache/route53-registered-domains/invalidate", s.handler.InvalidateRoute53RegisteredDomainsCache)
 			apiProtected.POST("/cache/eks-clusters/invalidate", s.handler.InvalidateEKSClustersCache)
 	}
 

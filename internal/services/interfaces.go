@@ -71,6 +71,9 @@ type AWSServiceInterface interface {
 	ListRoute53HostedZones() ([]models.Route53HostedZone, error)
 	ListRoute53Records(accountID, hostedZoneID string) ([]models.Route53Record, error)
 	InvalidateRoute53HostedZonesCache()
+	// Route53 registered domain management
+	ListRoute53RegisteredDomains() ([]models.Route53RegisteredDomain, error)
+	InvalidateRoute53RegisteredDomainsCache()
 	// EKS cluster management
 	ListEKSClusters() ([]models.EKSCluster, error)
 	ListEKSClustersByAccount(accountID string) ([]models.EKSCluster, error)

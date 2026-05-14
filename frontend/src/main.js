@@ -17,6 +17,7 @@ import VPCs from './components/VPCs.vue'
 import NATGateways from './components/NATGateways.vue'
 import Route53HostedZones from './components/Route53HostedZones.vue'
 import Route53HostedZoneDetail from './components/Route53HostedZoneDetail.vue'
+import Route53RegisteredDomains from './components/Route53RegisteredDomains.vue'
 import EKSClusters from './components/EKSClusters.vue'
 import AzureEnterpriseApps from './components/AzureEnterpriseApps.vue'
 import AzureVMs from './components/AzureVMs.vue'
@@ -50,6 +51,7 @@ const routes = [
   { path: '/aws/nat-gateways', name: 'NATGateways', component: NATGateways, meta: { requiresAuth: true } },
   { path: '/aws/route53-hosted-zones', name: 'Route53HostedZones', component: Route53HostedZones, meta: { requiresAuth: true } },
   { path: '/aws/route53-hosted-zones/:accountId/:hostedZoneId', name: 'Route53HostedZoneDetail', component: Route53HostedZoneDetail, props: true, meta: { requiresAuth: true } },
+  { path: '/aws/route53-registered-domains', name: 'Route53RegisteredDomains', component: Route53RegisteredDomains, meta: { requiresAuth: true } },
   { path: '/aws/eks-clusters', name: 'EKSClusters', component: EKSClusters, meta: { requiresAuth: true } },
   { path: '/aws/accounts/:accountId/users/:username', name: 'UserDetail', component: UserDetail, props: true, meta: { requiresAuth: true } },
   // SSO Routes
