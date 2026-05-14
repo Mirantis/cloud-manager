@@ -119,7 +119,7 @@ func (s *AWSService) getRoute53HostedZonesForAccount(account models.Account) ([]
 			}
 
 			zones = append(zones, models.Route53HostedZone{
-				HostedZoneID:   aws.StringValue(hz.Id),
+				HostedZoneID:   strings.TrimPrefix(aws.StringValue(hz.Id), "/hostedzone/"),
 				Name:           aws.StringValue(hz.Name),
 				RecordSetCount: recordCount,
 				IsPrivate:      isPrivate,
