@@ -56,9 +56,11 @@
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Search by name, type, or value..."
+            placeholder="Search by record name, type, or value..."
             class="search-input"
+            autofocus
           />
+          <span v-if="searchQuery" class="search-clear" @click="searchQuery = ''" title="Clear search">&times;</span>
         </div>
         <select v-model="filterType" class="filter-select">
           <option value="">All Types</option>
@@ -75,9 +77,16 @@
       </div>
 
       <div class="table-container">
-        <div v-if="filteredRecords.length === 0" class="empty-state">
+        <div v-if="searchQuery || filterType" class="record-count">
+          Showing {{ filteredRecords.length }} of {{ records.length }} records
+        </div>
+        <div v-if="records.length === 0 && !loading" class="empty-state">
           <h4>No records found</h4>
-          <p>No DNS records match the current search and filter criteria.</p>
+          <p>This hosted zone has no DNS records.</p>
+        </div>
+        <div v-else-if="filteredRecords.length === 0" class="empty-state">
+          <h4>No matching records</h4>
+          <p>No DNS records match <strong>{{ searchQuery }}</strong>. <a href="#" @click.prevent="searchQuery = ''">Clear search</a></p>
         </div>
         <table v-else class="records-table">
           <thead>
@@ -182,8 +191,7 @@ export default {
       try {
         this.loading = true
         this.error = null
-        const zoneId = decodeURIComponent(this.hostedZoneId)
-        const url = `/api/accounts/${this.accountId}/route53-hosted-zones/${encodeURIComponent(zoneId)}/records`
+        const url = `/api/accounts/${this.accountId}/route53-hosted-zones/${this.hostedZoneId}/records`
         const response = await axios.get(url)
         this.records = response.data || []
       } catch (err) {
@@ -412,12 +420,35 @@ export default {
 
 .search-input {
   width: 100%;
-  padding: 0.75rem 1rem 0.75rem 3rem;
+  padding: 0.75rem 2.5rem 0.75rem 3rem;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
   font-size: 0.95rem;
+}
+
+.search-clear {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0.1rem 0.3rem;
+}
+
+.search-clear:hover {
+  color: var(--color-text-primary);
+}
+
+.record-count {
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+  padding: 0.5rem 1rem;
+  text-align: right;
 }
 
 .filter-select {

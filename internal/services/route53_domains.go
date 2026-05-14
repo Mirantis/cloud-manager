@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/rusik69/aws-iam-manager/internal/models"
@@ -142,6 +143,11 @@ func (s *AWSService) InvalidateRoute53HostedZonesCache() {
 }
 
 func (s *AWSService) ListRoute53Records(accountID, hostedZoneID string) ([]models.Route53Record, error) {
+	// Normalize zone ID: AWS accepts /hostedzone/ZXXX but callers may pass only ZXXX
+	if !strings.HasPrefix(hostedZoneID, "/") {
+		hostedZoneID = "/hostedzone/" + hostedZoneID
+	}
+
 	sess, err := s.getSessionForAccount(accountID)
 	if err != nil {
 		return nil, fmt.Errorf("cannot access account %s: %w", accountID, err)

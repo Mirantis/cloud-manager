@@ -121,7 +121,7 @@
             <tr v-for="domain in filteredDomains" :key="domain.hosted_zone_id" class="data-row">
               <td>
                 <router-link
-                  :to="{ name: 'Route53HostedZoneDetail', params: { accountId: domain.account_id, hostedZoneId: domain.hosted_zone_id }, query: { name: domain.name } }"
+                  :to="{ name: 'Route53HostedZoneDetail', params: { accountId: domain.account_id, hostedZoneId: domain.hosted_zone_id.split('/').pop() }, query: { name: domain.name } }"
                   class="domain-link"
                 >
                   <code class="domain-name">{{ domain.name }}</code>
