@@ -144,7 +144,10 @@
           <tbody>
             <tr v-for="cluster in filteredClusters" :key="cluster.cluster_name + cluster.account_id + cluster.region">
               <td class="name-cell">
-                <span class="cluster-name">{{ cluster.cluster_name }}</span>
+                <router-link
+                  :to="{ name: 'EKSClusterDetail', params: { accountId: cluster.account_id, region: cluster.region, clusterName: cluster.cluster_name } }"
+                  class="cluster-name cluster-link"
+                >{{ cluster.cluster_name }}</router-link>
               </td>
               <td class="mono" :title="cluster.cluster_arn">{{ shortArn(cluster.cluster_arn) }}</td>
               <td>
@@ -686,6 +689,16 @@ export default {
 .cluster-name {
   font-weight: 600;
   color: #f97316;
+}
+
+.cluster-link {
+  text-decoration: none;
+  color: #f97316;
+}
+
+.cluster-link:hover {
+  text-decoration: underline;
+  color: #ea580c;
 }
 
 .account-name {
