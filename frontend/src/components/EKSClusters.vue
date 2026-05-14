@@ -138,6 +138,10 @@
               <th>Platform Version</th>
               <th>Node Groups</th>
               <th>Auth Mode</th>
+              <th @click="sortBy('created_at')" class="sortable">
+                Created
+                <span v-if="sortColumn === 'created_at'" class="sort-indicator">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
+              </th>
               <th>Public API</th>
             </tr>
           </thead>
@@ -168,6 +172,7 @@
                 <span v-else class="ng-none">-</span>
               </td>
               <td>{{ cluster.auth_mode || '-' }}</td>
+              <td class="mono date-cell">{{ formatDate(cluster.created_at) }}</td>
               <td class="center">
                 <span v-if="cluster.public_access" class="feature-badge feature-public" title="Public API Access">
                   Public
@@ -327,6 +332,10 @@ export default {
         case 'PAUSED': return 'status-paused'
         default: return 'status-default'
       }
+    },
+    formatDate(dt) {
+      if (!dt) return '-'
+      return new Date(dt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
     },
     shortArn(arn) {
       if (!arn) return ''
@@ -763,6 +772,12 @@ export default {
 }
 
 .ng-none {
+  color: var(--color-text-secondary);
+}
+
+.date-cell {
+  white-space: nowrap;
+  font-size: 0.85rem;
   color: var(--color-text-secondary);
 }
 
